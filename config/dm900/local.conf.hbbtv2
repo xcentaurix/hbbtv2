@@ -1,0 +1,5 @@
+# Lines for builds/openvix/developer/dm900/conf/local.conf (only for WebKit DEVELOPMENT builds; see build.txt, section 6).
+# Without them wpewebkit is built from the release tarball + the patches in meta-hbbtv2 (slow, reproducible).
+# Needs:   INHERIT += "externalsrc"    (the dm900 local.conf already has it)
+EXTERNALSRC:pn-wpewebkit = "/home/alpha/wpe-src/wpewebkit-2.54.0"
+EXTERNALSRC_BUILD:pn-wpewebkit = "/home/alpha/wpe-src/build"

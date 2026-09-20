@@ -1,0 +1,4 @@
+# Patches, shell scripts and sources are used on Linux (bitbake, the box): keep LF regardless of core.autocrlf.
+* text=auto eol=lf
+*.patch text eol=lf
+*.sh text eol=lf

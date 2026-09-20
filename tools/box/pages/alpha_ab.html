@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>alpha ab</title>
+<body style="margin:0;background:transparent;overflow:hidden;font-family:sans-serif">
+<!-- Two identical rows of panels. The embedder writes the TOP row (y < 360) as delivered (premultiplied) and the
+     BOTTOM row (y >= 360) converted to straight alpha, so the two conventions can be compared side by side. -->
+<style>
+  .p { position:absolute; width:200px; height:130px; box-sizing:border-box; border:3px solid #fff; border-radius:8px; }
+  .l { position:absolute; width:200px; text-align:center; color:#fff; font-size:20px; text-shadow:0 0 4px #000, 0 0 8px #000; }
+  .t { position:absolute; left:0; right:0; text-align:center; color:#fff; font-size:30px; text-shadow:0 0 5px #000, 0 0 10px #000; }
+</style>
+<div class="t" style="top:20px">TOP row: premultiplied, as delivered</div>
+<div class="t" style="top:370px">BOTTOM row: converted to straight alpha</div>
+<script>
+const cols = [ ['clear','transparent'], ['black 50%','rgba(0,0,0,.5)'], ['red 50%','rgba(255,0,0,.5)'], ['white 50%','rgba(255,255,255,.5)'], ['blue 100%','rgba(0,0,255,1)'] ];
+[[90, 235], [440, 585]].forEach(([top, labelTop]) => cols.forEach(([name, bg], i) => {
+  const x = 80 + i * 230;
+  const p = document.createElement('div'); p.className = 'p'; p.style.left = x + 'px'; p.style.top = top + 'px'; p.style.background = bg; document.body.appendChild(p);
+  const l = document.createElement('div'); l.className = 'l'; l.style.left = x + 'px'; l.style.top = (top + 140) + 'px'; l.textContent = name; document.body.appendChild(l);
+}));
+</script>

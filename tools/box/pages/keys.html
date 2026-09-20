@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>key=none</title>
+<body style="margin:0;background:rgba(10,16,32,.88);color:#fff;font-family:sans-serif;overflow:hidden">
+<!-- KEY TEST: shows the last key the page received (DOM key, keyCode, code). Also puts it in the title for logs. -->
+<div style="position:absolute;left:60px;top:40px;font-size:40px">WPE key test - press remote keys (EXIT closes)</div>
+<div id="big" style="position:absolute;left:60px;top:170px;font-size:130px;color:#ffcc00">-</div>
+<div id="info" style="position:absolute;left:60px;top:390px;font-size:34px"></div>
+<div id="log" style="position:absolute;left:60px;top:470px;font-size:30px;line-height:1.4;color:#9cf"></div>
+<script>
+let n = 0; const hist = [];
+addEventListener('keydown', e => {
+  n++;
+  document.getElementById('big').textContent = e.key;
+  document.getElementById('info').textContent = 'key=' + e.key + '   keyCode=' + e.keyCode + '   code=' + e.code + '   #' + n;
+  hist.unshift(e.key + '(' + e.keyCode + ')'); if (hist.length > 8) hist.pop();
+  document.getElementById('log').textContent = 'history: ' + hist.join('   ');
+  document.title = 'key=' + e.keyCode + ' ' + e.key;
+  e.preventDefault();
+});
+</script>

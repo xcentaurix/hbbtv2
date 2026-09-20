@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>start</title>
+<body style="margin:0;background:#123;overflow:hidden">
+<!-- LIGHT: one small box sliding across the screen (tiny damage region per frame) -->
+<div id="b" style="position:absolute;width:160px;height:160px;background:#e33;left:0;top:280px"></div>
+<script>
+let n = 0, last = performance.now(), prev = last, maxdt = 0;
+function f(t) {
+  n++;
+  maxdt = Math.max(maxdt, t - prev); prev = t;
+  document.getElementById('b').style.transform = 'translateX(' + ((t / 4) % 1100) + 'px)';
+  if (t - last >= 1000) {
+    document.title = 'fps=' + (n * 1000 / (t - last)).toFixed(1) + ' maxdt=' + maxdt.toFixed(0) + 'ms';
+    n = 0; last = t; maxdt = 0;
+  }
+  requestAnimationFrame(f);
+}
+requestAnimationFrame(f);
+</script>

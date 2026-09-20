@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><title>start</title>
+<body style="margin:0;background:#0b1020;overflow:hidden;font-family:sans-serif;color:#fff">
+<!-- TYPICAL: an HbbTV-portal-like screen: tile grid, moving focus highlight, progress bar, clock text -->
+<style>
+  .tile { position:absolute; width:190px; height:120px; border-radius:8px; }
+  #focus { position:absolute; width:206px; height:136px; border:4px solid #ffcc00; border-radius:12px; box-shadow:0 0 24px #ffcc00; }
+  #bar { position:absolute; left:60px; top:640px; height:14px; background:#3c9; border-radius:7px; }
+  #clock { position:absolute; right:60px; top:24px; font-size:36px; }
+</style>
+<div id="clock"></div><div id="focus"></div><div id="bar"></div><div id="tiles"></div>
+<script>
+const cols = 6, rows = 4, tiles = document.getElementById('tiles');
+for (let i = 0; i < cols * rows; i++) {
+  const d = document.createElement('div'); d.className = 'tile';
+  d.style.left = (60 + (i % cols) * 200) + 'px'; d.style.top = (110 + Math.floor(i / cols) * 130) + 'px';
+  d.style.background = 'linear-gradient(135deg,hsl(' + (i * 15) + ',70%,45%),hsl(' + (i * 15 + 60) + ',70%,25%))';
+  d.innerHTML = '<div style="padding:12px;font-size:20px">Channel ' + (i + 1) + '<br><small>Now: Programme</small></div>';
+  tiles.appendChild(d);
+}
+let n = 0, last = performance.now(), prev = last, maxdt = 0;
+function f(t) {
+  n++;
+  maxdt = Math.max(maxdt, t - prev); prev = t;
+  const idx = Math.floor(t / 600) % (cols * rows);
+  const fx = 60 + (idx % cols) * 200 - 8, fy = 110 + Math.floor(idx / cols) * 130 - 8;
+  const fo = document.getElementById('focus');
+  fo.style.transform = 'translate(' + fx + 'px,' + fy + 'px)';
+  document.getElementById('bar').style.width = (100 + (t / 5) % 1000) + 'px';
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0, 8);
+  if (t - last >= 1000) {
+    document.title = 'fps=' + (n * 1000 / (t - last)).toFixed(1) + ' maxdt=' + maxdt.toFixed(0) + 'ms';
+    n = 0; last = t; maxdt = 0;
+  }
+  requestAnimationFrame(f);
+}
+requestAnimationFrame(f);
+</script>

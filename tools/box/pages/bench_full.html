@@ -1,0 +1,20 @@
+<!doctype html><meta charset="utf-8"><title>start</title>
+<body style="margin:0;overflow:hidden">
+<!-- WORST CASE: the whole 1280x720 frame changes every frame (full-frame damage + full read-back) -->
+<div id="bg" style="position:absolute;left:0;top:0;width:1280px;height:720px"></div>
+<div style="position:absolute;left:100px;top:300px;font:64px sans-serif;color:#fff">Full frame repaint</div>
+<script>
+let n = 0, last = performance.now(), prev = last, maxdt = 0;
+function f(t) {
+  n++;
+  maxdt = Math.max(maxdt, t - prev); prev = t;
+  document.getElementById('bg').style.background =
+    'linear-gradient(' + ((t / 8) % 360) + 'deg,#f00,#00f 50%,#0f0)';
+  if (t - last >= 1000) {
+    document.title = 'fps=' + (n * 1000 / (t - last)).toFixed(1) + ' maxdt=' + maxdt.toFixed(0) + 'ms';
+    n = 0; last = t; maxdt = 0;
+  }
+  requestAnimationFrame(f);
+}
+requestAnimationFrame(f);
+</script>

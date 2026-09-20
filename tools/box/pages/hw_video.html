@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>vid=loading</title>
+<style>html,body{margin:0;background:transparent;color:#fff;font:22px monospace}
+#frame{position:absolute;left:36px;top:36px;width:648px;height:368px;border:4px solid #f00;background:rgba(255,0,0,.15)}
+video{position:absolute;left:40px;top:40px;width:640px;height:360px}
+#s{position:absolute;left:40px;top:430px;white-space:pre;background:rgba(0,0,0,.6);padding:8px}
+#tag{position:absolute;left:720px;top:40px;width:500px;background:rgba(0,0,90,.8);padding:12px;border:3px solid #fff}</style></head>
+<body>
+<div id="frame"></div>
+<video id="v" loop playsinline></video>
+<div id="tag">HW video test<br>The red frame marks the &lt;video&gt; box.<br>Video should fill it, picture and sound.</div>
+<div id="s"></div>
+<script>
+var src = 'http://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4';
+var v = document.getElementById('v'), s = document.getElementById('s'), evs = [];
+['loadstart','loadedmetadata','loadeddata','canplay','playing','waiting','stalled','ended','error','seeked'].forEach(function (n) {
+  v.addEventListener(n, function () { evs.push(n); if (evs.length > 6) evs.shift(); });
+});
+v.src = src;
+v.play().catch(function (e) { evs.push('play():' + e.name); });
+function tick() {
+  var line = 't=' + v.currentTime.toFixed(2) + ' rs=' + v.readyState + ' ns=' + v.networkState + ' ' + v.videoWidth + 'x' + v.videoHeight +
+    ' paused=' + v.paused + ' err=' + (v.error ? v.error.code + ':' + v.error.message : '-');
+  s.textContent = line + '\nevents: ' + evs.join(' ');
+  document.title = 'vid=' + line;
+}
+setInterval(tick, 500);
+</script></body></html>
