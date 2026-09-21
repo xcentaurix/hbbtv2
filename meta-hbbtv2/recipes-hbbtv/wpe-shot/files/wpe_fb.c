@@ -28,10 +28,14 @@
  *     --hwvideo-lazy    like --hwvideo, but the live service keeps playing until media needs the decoder: the web process
  *                       asks for it over a socket (see "decoder handover"), ctl "decoder-free" answers
  *     --evt PATH        FIFO on which events for the enigma2 plugin are written (with --hwvideo-lazy): "acquire"/"release" (decoder handover),
- *                       "loaded" (the first page has finished loading),
- *                       "select audio|subtitle <pid>|default|none" (the application chose an audio track / subtitle)
+ *                       "loaded" (the first page has finished loading), "keyset <mask>" (the keys the application wants, see orb_host_key_set_mask),
+ *                       "select audio|subtitle <pid>|default|none" (the application chose an audio track / subtitle),
+ *                       "overlay ..." (with --overlay-png, see there)
  *     --trace           timestamped "T ..." lines on stderr for keys, frames (damage, blit time) and acks (see TRACE)
  *     --autoplay deny   media never starts by itself (measurements: no software decoding of previews)
+ *     --overlay-png P   (with --fb, for the geometry) the frame is not written to the framebuffer: the bounding box of its visible pixels is saved as
+ *                       P_<n>.png (at most ten a second) and the event "overlay <n> <x> <y> <w> <h> <file>" (screen coordinates; w = 0: nothing is
+ *                       visible) tells the plugin, which shows it in a skin screen on top of enigma2's own screen. See wpe_fb_png.h
  *     --scrollbars      (with --orb) keep WebKit's scrollbars (they are hidden by default: a TV shows none)
  *     --fast-anim       (with --orb) CSS transitions/animations last 1 ms and smooth scrolling is off: fewer frames per step
  *     --persist DIR     keep the HTTP cache (<= 75 MB), cookies and local storage of the applications in DIR between runs
@@ -48,6 +52,7 @@
  * dump <file.ppm> (the canvas as it is now), quit.
  */
 #define _GNU_SOURCE
+#include "wpe_fb_png.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <glib-unix.h>
@@ -113,9 +118,15 @@ typedef struct {
     int fb_saved_yoffset;
     int sx, sy, sw, sh; /* clipped region saved */
 
-    /* guard mode: the display owner (enigma2) redraws and flips pages under us, which wipes our overlay; keep a
+    /* guard mode: the display owner (enigma2) redraws and flips pages under us, which wipes our frame; keep a
      * converted copy of the frame in framebuffer format and repaint it whenever a flip or overwrite is seen */
     gboolean guard;
+    /* --overlay-png: the frame goes to PNG files (see png_flush) instead of the framebuffer */
+    char *png_prefix;
+    guint png_timer;
+    gint64 png_last_us;
+    guint64 png_seq;
+    gboolean png_empty; /* the last thing sent was "nothing visible" */
     guint32 *conv;
     int last_page;
     unsigned painted; /* bit mask of the pages we have painted */
@@ -205,6 +216,8 @@ static void convert_pixels(guint32 *dst, const guint8 *src, int n)
 
 static void fb_save_area(void)
 {
+    if (out.png_prefix)
+        return; /* the framebuffer is not touched */
     fb_read_var();
     out.fb_saved_yoffset = out.vinfo.yoffset;
     out.sx = MAX(0, out.fb_x);
@@ -223,9 +236,96 @@ static void fb_save_area(void)
     fprintf(stderr, "fb: saved %dx%d pixels at (%d,%d) of page yoffset %d\n", out.sw, out.sh, out.sx, out.sy, out.fb_saved_yoffset);
 }
 
+/* --overlay-png (see wpe_fb_png.h): when the frame has changed, the bounding box of its visible pixels is saved as <prefix>_<n>.png and the plugin is told
+ * on the event FIFO: "overlay <n> <x> <y> <w> <h> <file>" (screen coordinates), or "overlay <n> 0 0 0 0 -" when nothing is visible. enigma2 decodes the file
+ * on its main thread, so at most PNG_INTERVAL_MS between two. The last PNG_KEEP files stay (the plugin may be a little behind), older ones are deleted. */
+#define PNG_INTERVAL_MS 100
+#define PNG_KEEP 4
+
+static void evt_send(const char *line);
+
+static void png_unlink(guint64 seq)
+{
+    char *path = g_strdup_printf("%s_%llu.png", out.png_prefix, (unsigned long long)seq);
+    unlink(path);
+    g_free(path);
+}
+
+static gboolean png_flush(gpointer data)
+{
+    out.png_timer = 0;
+    out.png_last_us = g_get_monotonic_time();
+    int x0 = out.ow, y0 = out.oh, x1 = -1, y1 = -1;
+    for (int y = 0; y < out.oh; y++) {
+        const guint32 *row = out.conv + (size_t)y * out.ow;
+        int first = 0;
+        while (first < out.ow && !(row[first] >> 24))
+            first++;
+        if (first == out.ow)
+            continue;
+        int last = out.ow - 1;
+        while (!(row[last] >> 24))
+            last--;
+        x0 = MIN(x0, first);
+        x1 = MAX(x1, last);
+        y0 = MIN(y0, y);
+        y1 = y;
+    }
+    char line[600];
+    if (x1 < 0) {
+        if (out.png_empty)
+            return G_SOURCE_REMOVE; /* still nothing to see */
+        out.png_empty = TRUE;
+        snprintf(line, sizeof line, "overlay %llu 0 0 0 0 -\n", (unsigned long long)++out.png_seq);
+    } else {
+        const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+        size_t len;
+        guint8 *png = png_encode_argb(out.conv + (size_t)y0 * out.ow + x0, out.ow, w, h, &len);
+        char *path = g_strdup_printf("%s_%llu.png", out.png_prefix, (unsigned long long)(out.png_seq + 1));
+        GError *error = NULL;
+        if (!png || !g_file_set_contents(path, (const gchar *)png, (gssize)len, &error)) { /* written to a temporary file and renamed: never half a file */
+            fprintf(stderr, "overlay: cannot write %s: %s\n", path, error ? error->message : "out of memory");
+            g_clear_error(&error);
+            free(png);
+            g_free(path);
+            return G_SOURCE_REMOVE;
+        }
+        free(png);
+        out.png_empty = FALSE;
+        snprintf(line, sizeof line, "overlay %llu %d %d %d %d %s\n", (unsigned long long)++out.png_seq, out.fb_x + x0, out.fb_y + y0, w, h, path);
+        g_free(path);
+    }
+    if (out.png_seq > PNG_KEEP)
+        png_unlink(out.png_seq - PNG_KEEP);
+    evt_send(line);
+    return G_SOURCE_REMOVE;
+}
+
+/* The frame (out.conv) has changed. */
+static void png_dirty(void)
+{
+    if (out.png_timer)
+        return; /* a save is already due: it takes the newest state */
+    const gint64 since = (g_get_monotonic_time() - out.png_last_us) / 1000;
+    out.png_timer = g_timeout_add(since >= PNG_INTERVAL_MS ? 20 : (guint)(PNG_INTERVAL_MS - since), png_flush, NULL); /* 20 ms: the rects of one frame come together */
+}
+
+static void png_cleanup(void)
+{
+    if (out.png_timer)
+        g_source_remove(out.png_timer);
+    out.png_timer = 0;
+    for (guint64 seq = out.png_seq > PNG_KEEP ? out.png_seq - PNG_KEEP : 1; seq <= out.png_seq; seq++)
+        png_unlink(seq);
+}
+
 /* Copy a rect of the converted frame (out.conv) to the framebuffer page starting at row `yoffset`. */
 static void fb_write_rect(int yoffset, int rx, int ry, int rw, int rh)
 {
+    if (out.png_prefix) {
+        png_dirty();
+        return;
+    }
     if (out.vinfo.yres)
         out.painted |= 1u << (yoffset / out.vinfo.yres);
     for (int row = 0; row < rh; row++) {
@@ -269,11 +369,11 @@ static double fb_paint_all(void)
     return (g_get_monotonic_time() - t0) / 1000.0;
 }
 
-/* Guard: poll for page flips and overwrites by the display owner and repair the overlay. */
-static gboolean guard_tick(gpointer data)
+/* Guard: poll for page flips and overwrites by the display owner and repair the frame. */
+static void guard_check(void)
 {
     if (!out.fb_on || !out.guard || !out.frames)
-        return G_SOURCE_CONTINUE; /* nothing painted yet */
+        return; /* nothing painted yet */
     fb_read_var();
     const int page = out.vinfo.yoffset / out.vinfo.yres;
     const gboolean flipped = page != out.last_page;
@@ -289,6 +389,11 @@ static gboolean guard_tick(gpointer data)
         if (ms > out.max_repaint_ms)
             out.max_repaint_ms = ms;
     }
+}
+
+static gboolean guard_tick(gpointer data)
+{
+    guard_check();
     return G_SOURCE_CONTINUE;
 }
 
@@ -298,6 +403,10 @@ static void fb_restore_area(void)
 {
     if (!out.fb_on)
         return;
+    if (out.png_prefix) {
+        png_cleanup();
+        return;
+    }
     fb_read_var();
     const int pages = out.vinfo.yres_virtual / out.vinfo.yres;
     int restored = 0, cleared = 0;
@@ -1022,6 +1131,21 @@ static void orb_cb_select_component(int type, const char *what, void *user)
     evt_send(line);
 }
 
+/* The keys the application has asked for (Manager.setKeyValue: a mask of red, green, yellow, blue, navigation, VCR, ... keys) are what the plugin
+ * has to take from enigma2 when the application runs on top of the live picture: tell it when the mask changes ("keyset <mask>", event FIFO). */
+static gboolean keyset_tick(gpointer data)
+{
+    static unsigned last = 0xffffffffu;
+    const unsigned mask = orb_host_key_set_mask();
+    if (mask != last) {
+        char line[32];
+        last = mask;
+        snprintf(line, sizeof line, "keyset %u\n", mask);
+        evt_send(line);
+    }
+    return G_SOURCE_CONTINUE;
+}
+
 /* orb://player: the page the polyfill's media element extension puts in an iframe to play audio/video (see ORB's
  * ORBWPEWebExtensionHelper::HandleORBURISchemeRequest). It is playerpage.html with the token of the page and two scripts
  * (iframe.js: the player logic that talks to the polyfill in the parent through postMessage, dash.all.min.js) inlined. */
@@ -1288,6 +1412,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--unpremul")) out.unpremul = TRUE;
         else if (!strcmp(argv[i], "--premul")) force_premul = TRUE;
         else if (!strcmp(argv[i], "--no-guard")) no_guard = TRUE;
+        else if (!strcmp(argv[i], "--overlay-png") && i + 1 < argc) out.png_prefix = g_strdup(argv[++i]);
         else if (!strcmp(argv[i], "--ctl") && i + 1 < argc) ctl = argv[++i];
         else if (!strcmp(argv[i], "--opaque")) out.opaque = TRUE;
         else if (!strcmp(argv[i], "--unpremul-from-y") && i + 1 < argc) out.unpremul_from_y = atoi(argv[++i]);
@@ -1354,6 +1479,13 @@ int main(int argc, char **argv)
         out.fb_y = py >= 0 ? py : ((int)out.vinfo.yres - out.oh) / 2;
         fb_save_area();
         out.conv = g_malloc0((size_t)out.ow * out.oh * 4);
+        if (out.png_prefix) {
+            /* the pixels are made straight-alpha ARGB whatever the framebuffer's own format, and the framebuffer is left alone */
+            out.vinfo.red.offset = 16; out.vinfo.green.offset = 8; out.vinfo.blue.offset = 0; out.vinfo.transp.offset = 24;
+            out.unpremul = TRUE;
+            no_guard = TRUE;
+            fprintf(stderr, "overlay: the frame goes to %s_<n>.png, not to the framebuffer\n", out.png_prefix);
+        }
         out.guard = !no_guard;
         out.last_page = out.vinfo.yoffset / out.vinfo.yres;
         out.fb_on = TRUE;
@@ -1553,6 +1685,7 @@ int main(int argc, char **argv)
             return 4;
         }
         orb_host_set_component_handler(orb_cb_select_component, NULL);
+        g_timeout_add(300, keyset_tick, NULL);
         {
             /* HbbTV servers sniff the user agent for the "HbbTV/x.y.z (...)" token the engine provides */
             WebKitSettings *settings = webkit_web_view_get_settings(view);
@@ -1580,7 +1713,7 @@ int main(int argc, char **argv)
 
     g_main_loop_run(loop);
 
-    if (out.fb_on) {
+    if (out.fb_on && !out.png_prefix) {
         /* Verify the blit: read the framebuffer region back and compare it with the shadow canvas. */
         fb_read_var();
         const int page = out.vinfo.yoffset;
@@ -1608,7 +1741,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "   first difference at frame pixel (%ld,%ld)\n", first_x, first_y);
     }
 
-    if (out.fb_on)
+    if (out.fb_on && !out.png_prefix)
         fprintf(stderr, "== guard: %s; %llu page flips seen, %llu repaints (%llu without a flip = overwritten in place), slowest repaint %.1f ms\n",
             out.guard ? "on" : "off", (unsigned long long)out.flips, (unsigned long long)out.repaints, (unsigned long long)out.overwrites, out.max_repaint_ms);
 

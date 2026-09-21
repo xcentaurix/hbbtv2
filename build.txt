@@ -275,3 +275,42 @@ The pieces of the layer (meta-hbbtv2/)
   NOT done (and why): AUTOSTART on zapping. A permanent background overlay would need wpe_fb to blend only the pixels the application really draws (it
   writes every pixel of the frame, transparent ones too, and repaints after every enigma2 page flip = enigma2's own OSD would disappear while it runs)
   and keys to be passed on to enigma2 unless the application's key set claims them (a global key hook + the key set from the engine).
+
+14. Red button and automatic banner (orb r4, plugin r14) - 2026-09-21
+----------------------------------------------------------------------
+  Two ways to start the application of a channel, each with its own switch in the plugin's settings:
+    red button (WPE_REDBUTTON, default on):  enigma2's InfoBar.onHBBTVActivation hook (InfoBarRedButton.activateRedButton) starts the channel application
+               as a screen of its own and presses red for it once it has loaded (RED_DELAY 1500 ms after the event "loaded").
+    automatic banner (WPE_AUTOSTART, default off):  class AutoStart (plugin.py). When the box has stayed on a service for 3 s (SETTLE) it reads the AIT
+               (section 13); with an AUTOSTART application the banner runs on top of the live picture, keyed by the engine's key set:
+               wpe_fb reports "keyset <mask>" (orb_host_key_set_mask, every 300 ms) and an eActionMap hook (bindAction "", highest priority) takes ONLY the keys
+               of that mask (red/green/yellow/blue, navigation, VCR, numeric; EXIT only once the navigation keys are asked for) and passes their "make",
+               repeat and "break" to the application; everything else stays enigma2's. Zapping to another service stops the banner; a service that stops
+               only because the application takes the decoder for media does not.
+  HOW THE BANNER IS SHOWN (the decision that cost the most): wpe_fb --overlay-png /tmp/wpe_overlay (run_wpe.sh, WPE_OVERLAY=1). The frame is NOT written into
+  the framebuffer. For every change (at most 10/s, PNG_INTERVAL_MS) wpe_fb saves the bounding box of the visible pixels as an UNCOMPRESSED PNG
+  (wpe_fb_png.h: deflate "stored" blocks, own CRC/Adler, no zlib; straight alpha) and writes "overlay <n> <x> <y> <w> <h> <file>" (or "... 0 0 0 0 -")
+  to the event FIFO. The plugin's WPEScreen(overlay=True) is a dialog (instantiateDialog + show()) with a skin of 1x1 and one Pixmap widget; it moves and
+  resizes ITSELF to the bounding box and does widget.setPixmapFromFile(file): enigma2 composes it with the rest of its screen (a user's suggestion:
+  "a skin screen with a pixmap"). Only the newest event of a poll batch (100 ms) is decoded; wpe_fb keeps the last 4 files.
+  WHY NOT THE FRAMEBUFFER (three hardware runs to learn it): gEGLDC::flip() presents page N, then seeds the next render page with a copy of N at that very
+  moment - before anything of ours is painted into N - so every page enigma2 presents after a flip lacks the overlay until a repaint (blinking once
+  a second while the infobar or a message updates; the repaint of 150 k pixels took 74 ms); and an "under" pixel captured for one page is wrong for the next
+  (a hidden box restored a stale black rectangle when its hide raced a flip). Writing behind enigma2's back cannot be made robust. The full-screen (red
+  button) mode still uses the framebuffer with the guard, which is fine there because enigma2 has nothing else to show.
+  Bugs on the way (all invisible to the first tests, all now covered by tools/box/test_autostart.py, which uses the REAL WPEScreen with stubs and is
+  checked to fail without each fix):
+    - start() ran twice for a dialog (once by AutoStart, once by onLayoutFinish); the second execute() returned -1: "could not start wpe_fb" and the good
+      first start was killed.  -> start() is idempotent.
+    - env = "WPE_HWVIDEO=1 " replaced WPE_OVERLAY=1, so the "overlay" ran in framebuffer mode and wiped the infobar after every flip (found by
+      tools/box/infobar_monitor.py: the visible page's infobar samples drop to 0 in a sweep after each flip).  -> env +=.
+    - a dialog from instantiateDialog() is invisible until show().
+  Measuring flicker: tools/box/infobar_monitor.py (+ zap_run.sh) logs, for every page flip of /dev/fb0, how many sample points of the infobar band are
+  not transparent; a healthy zap shows 352 of 352 on every page.
+  Tests: tools/box/test_autostart.py (no box), test_png.c + test_png.py (PNG encoder against PIL), overlay_png_check.sh (on the box, draws nothing; with
+  pages/overlay_test.html: opaque red, 50 % blue = (0,0,255,128), transparent elsewhere).
+  Quick build of only wpe_fb, without any WebKit risk:  bash /home/alpha/bb.sh enigma2-plugin-extensions-wpehbbtv -c compile -f  (the binary is in the
+  recipe's sources/ directory); the package: bb.sh enigma2-plugin-extensions-wpehbbtv, bump PR for opkg to upgrade, install with
+  opkg install --no-install-recommends ./<ipk> and restart the GUI (init 4; sleep 4; init 3, nothing recording).
+  Known limits: the PNG covers the bounding box of ALL visible pixels (a sparse page = a big PNG, decoded on enigma2's main thread); ZDF's AIT lists its
+  QA/Dev applications in the choice menu of the red button screen; the automatic banner is off by default.

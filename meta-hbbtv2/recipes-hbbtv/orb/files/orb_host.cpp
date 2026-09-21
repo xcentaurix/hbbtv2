@@ -446,6 +446,15 @@ void orb_host_broadcast_stopped(void)
         handler->OnBroadcastStopped();
 }
 
+unsigned int orb_host_key_set_mask(void)
+{
+    orb::ORBEngine &engine = orb::ORBEngine::GetSharedInstance();
+    const uint16_t appId = engine.GetCurrentAppId();
+    if (appId == UINT16_MAX)
+        return 0;
+    return engine.GetApplicationManager()->GetKeySetMask(appId);
+}
+
 int orb_host_launch_broadcast(const char *url)
 {
     if (url && !strncmp(url, "dvb://", 6)) { /* dvb://current.ait/<org>.<app>: an application of the AIT of the selected service */

@@ -90,6 +90,11 @@ void orb_host_set_components(const char *text);
 /* Same for the platform library: copies at most `max` components (all types) and returns how many there are; 0 = none received / none. */
 int orb_host_components(OrbHostComponent *out, int max);
 
+/* The keys the running application has asked for (Manager.setKeyValue), as the HbbTV key set mask: 0x1 red, 0x2 green, 0x4 yellow, 0x8 blue,
+ * 0x10 navigation (arrows, ok, back), 0x20 VCR (play, pause, stop, ff, rew ...), 0x40 scroll, 0x80 info, 0x100 numeric, 0x200 alpha, 0x400 other.
+ * 0 while no application runs. Unlike a key event this does not "activate" the application. */
+unsigned int orb_host_key_set_mask(void);
+
 /* The embedder's answer to a component selection of the application (Broadcast.overrideComponentSelection / restoreComponentSelection):
  * `what` is "<pid>" for a component, "default" (restore) or "none" (subtitles/audio off) - the embedder forwards it to enigma2. */
 void orb_host_set_component_handler(void (*handler)(int type, const char *what, void *user), void *user);

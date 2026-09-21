@@ -27,7 +27,8 @@ SRCREV = "8945a1301ca036f8fbc973876476bb1af14c591d"
 # r1: patch 0004 (broadcast-related applications), the current channel in the platform layer; r2: the components (video, audio, subtitles) of the channel
 # come from enigma2 (orb_host_set_components), component selection goes back to it (orb_host.h changed: the plugin needs this revision)
 # r3: the real AIT (orb_host_service_selected / orb_host_ait_section / orb_host_broadcast_stopped, dvb://current.ait locators in orb_host_launch_broadcast)
-PR = "r3"
+# r4: orb_host_key_set_mask (the key set of the running application, for the automatic banner)
+PR = "r4"
 PV = "1.0+git"
 PKGV = "1.0+git${GITPKGV}"
 

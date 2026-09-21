@@ -40,6 +40,7 @@ OPTS="--hidpi $WPE_HIDPI --transparent --fine-damage"
 [ "$WPE_FAST_ANIM" = 1 ] && OPTS="$OPTS --fast-anim"
 [ "$WPE_DEBUG" = 1 ] || OPTS="$OPTS --no-debug-js"
 [ "$WPE_LIMIT_REPEAT" = 1 ] && OPTS="$OPTS --limit-repeat"
+[ "$WPE_OVERLAY" = 1 ] && OPTS="$OPTS --overlay-png /tmp/wpe_overlay" # set by the plugin for the automatic banner: no framebuffer, the visible part of each frame as a PNG that the plugin shows in a screen of enigma2
 if [ "${WPE_PERSIST:-1}" = 1 ] && [ -d "$(dirname "$WPE_PERSIST_DIR")" ] && [ -w "$(dirname "$WPE_PERSIST_DIR")" ]; then
 	OPTS="$OPTS --persist $WPE_PERSIST_DIR"
 fi

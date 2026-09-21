@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>overlay test</title></head>
+<body style="margin:0;background:transparent;overflow:hidden">
+<!-- Test page for wpe_fb --overlay (tools/box/overlay_check.sh): three boxes on a transparent page. View 1280x720 (x1.5 = 1920x1080 on the screen):
+     a = opaque red at 100,100 240x90 (hidden after 7 s), b = 50% blue with white text at 100,230 240x90, c = opaque green at 260,520 300x80
+     (b and c are hidden after 11 s). -->
+<div id="a" style="position:absolute;left:100px;top:100px;width:240px;height:90px;background:#ff0000"></div>
+<div id="b" style="position:absolute;left:100px;top:230px;width:240px;height:90px;background:rgba(0,0,255,0.5);color:#fff;font:32px sans-serif">50% blue</div>
+<div id="c" style="position:absolute;left:260px;top:520px;width:300px;height:80px;background:#00cc00;color:#000;font:28px sans-serif">green</div>
+<script>
+setTimeout(function () { document.getElementById('a').style.display = 'none'; }, 7000);
+setTimeout(function () { document.getElementById('b').style.display = 'none'; document.getElementById('c').style.display = 'none'; }, 11000);
+</script>
+</body>
+</html>

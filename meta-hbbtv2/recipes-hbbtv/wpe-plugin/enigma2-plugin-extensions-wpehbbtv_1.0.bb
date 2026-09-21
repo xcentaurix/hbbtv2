@@ -13,6 +13,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/../wpe-shot/files:${THISDIR}/../orb/files
 
 SRC_URI = " \
     file://wpe_fb.c \
+    file://wpe_fb_png.h \
     file://WPEHbbTV/__init__.py \
     file://WPEHbbTV/plugin.py \
     file://WPEHbbTV/keymap.xml \
@@ -30,14 +31,22 @@ S = "${UNPACKDIR}"
 # track or subtitle to enigma2; r5: the ZDF start banner is opened again (the r3 shortcut to the main application is gone: every channel starts with
 # its own start application); r6: the real AIT (read from the demux, given to the engine; a choice among the applications it signals). A new revision each
 # time, so that opkg upgrades. r7: a "Loading HbbTV ..." message until the first page has loaded. r8: dvb://current.ait locators in hexadecimal.
-PR = "r8"
+# r9: the red button starts the application (InfoBar.onHBBTVActivation) and the automatic banner (autostart): the keys the application asks for go to
+# it. Both can be switched off in the settings. r10: the automatic banner is shown by enigma2 itself: wpe_fb --overlay-png saves the visible part of each
+# frame as a PNG, a skin screen of the plugin shows it in a Pixmap widget (writing into the framebuffer behind enigma2's back blinked and left remnants).
+# r11: a screen created as a dialog is started once (its creator and its layout both started it: the second start failed, "could not start wpe_fb").
+# r12: the banner's screen is 1x1 and then only as big as the picture (a window over the whole desktop made enigma2 redraw - flicker - the infobar).
+# r13: the automatic banner really runs in overlay mode (WPE_OVERLAY=1 was lost when WPE_HWVIDEO=1 was set: wpe_fb then wrote the whole frame into the
+# framebuffer and wiped enigma2's infobar after every page flip).
+# r14: the banner's dialog is shown (instantiateDialog() alone leaves it invisible).
+PR = "r14"
 
 # wpewebkit: the browser engine and its headers; orb: the engine, orb_host.h and the libraries wpe_fb is linked against
 DEPENDS = "wpewebkit orb glib-2.0 libsoup"
 # wpe_fb loads the web process extension and the platform library of ORB by path (dlopen), which the shared library dependencies do not show.
 # No "enigma2" here: it is always there on a box, and bitbake would build everything a package runtime-depends on (a whole enigma2 build).
-# orb r3 or later: orb_host_service_selected / orb_host_ait_section (r2: orb_host_set_components / orb_host_set_component_handler)
-RDEPENDS:${PN} = "orb (>= 1.0+git385+8945a130+8945a1301c-r3)"
+# orb r4 or later: orb_host_key_set_mask (r3: orb_host_service_selected / orb_host_ait_section) (r2: orb_host_set_components / orb_host_set_component_handler)
+RDEPENDS:${PN} = "orb (>= 1.0+git385+8945a130+8945a1301c-r4)"
 
 inherit pkgconfig
 

@@ -16,6 +16,7 @@
 #   run_wpe.sh   starts wpe_fb with the right environment
 #   pages/*.html the pages offered in the chooser
 import fcntl
+import glob
 import os
 import queue
 import re
@@ -23,9 +24,11 @@ import select
 import struct
 import threading
 import time
+from sys import maxsize
 
-from enigma import eConsoleAppContainer, eTimer, getDesktop, iServiceInformation
+from enigma import eActionMap, eConsoleAppContainer, ePoint, eSize, eTimer, getDesktop, iPlayableService, iServiceInformation
 from Components.ActionMap import ActionMap
+from Components.Pixmap import Pixmap
 from Plugins.Plugin import PluginDescriptor
 from Screens.ChoiceBox import ChoiceBox
 from Components.Label import Label
@@ -38,6 +41,8 @@ PAGES = f"{BASE}/pages"
 CTL = "/tmp/wpe_fb.ctl"
 EVT = "/tmp/wpe_fb.evt"
 LOG = "/tmp/wpe_fb.log"
+RED_DELAY = 1500  # ms between "the first page has loaded" and the red key that the red button gives the application
+OVERLAY_FILES = "/tmp/wpe_overlay"  # wpe_fb --overlay-png writes /tmp/wpe_overlay_<n>.png (run_wpe.sh)
 AIT_FILE = "/tmp/wpe_ait.txt"  # the AIT sections of the service, "<pid> <sid> <hex>" per line, read by run_wpe.sh
 CONF = "/etc/enigma2/wpehbbtv.conf"  # KEY=VALUE lines, read by run_wpe.sh (see there for the defaults)
 PERSIST_DIR = "/media/hdd/.wpe-data"  # HTTP cache, cookies and local storage of the applications (WPE_PERSIST_DIR in the conf overrides)
@@ -46,6 +51,34 @@ REPEAT_KEYS = ["up", "down", "left", "right"]  # keys that have a separate "<nam
 # Keys forwarded to the page; the names match the "mapto" values in keymap.xml and wpe_fb's key table.
 FORWARDED_KEYS = ["up", "down", "left", "right", "ok", "back", "menu", "red", "green", "yellow", "blue",
 	"play", "pause", "stop", "ff", "rew", "rec"] + [str(n) for n in range(10)]
+
+
+# The keys an application running on top of the live picture (overlay mode) can take from enigma2: it asks for them by key set (a mask; wpe_fb reports
+# it as the event "keyset <mask>"). enigma2 key code -> the name wpe_fb knows.
+KEY_NAMES = {}
+try:
+	from keyids import KEYIDS
+	for _id, _name in (("KEY_UP", "up"), ("KEY_DOWN", "down"), ("KEY_LEFT", "left"), ("KEY_RIGHT", "right"), ("KEY_OK", "ok"), ("KEY_BACK", "back"),
+			("KEY_EXIT", "exit"), ("KEY_RED", "red"), ("KEY_GREEN", "green"), ("KEY_YELLOW", "yellow"), ("KEY_BLUE", "blue"), ("KEY_PLAY", "play"),
+			("KEY_PAUSE", "pause"), ("KEY_STOP", "stop"), ("KEY_FASTFORWARD", "ff"), ("KEY_REWIND", "rew")) + tuple(("KEY_%d" % n, str(n)) for n in range(10)):
+		if _id in KEYIDS:
+			KEY_NAMES[KEYIDS[_id]] = _name
+except ImportError:
+	pass
+KEYSET_KEYS = {0x1: ("red",), 0x2: ("green",), 0x4: ("yellow",), 0x8: ("blue",), 0x10: ("up", "down", "left", "right", "ok", "back"),
+	0x20: ("play", "pause", "stop", "ff", "rew"), 0x100: tuple(str(n) for n in range(10))}
+
+
+def claimedKeys(mask):
+	"""The keys of a HbbTV key set mask. EXIT is only taken once the application is interactive (asks for the navigation keys): until then it is
+	enigma2's (closing its infobar); after that it ends the application."""
+	names = set()
+	for bit, keys in KEYSET_KEYS.items():
+		if mask & bit:
+			names.update(keys)
+	if mask & 0x10:
+		names.add("exit")
+	return names
 
 
 # --- the streams of the tuned service, for the application (Broadcast.getComponents and friends) ----------------------------------
@@ -266,16 +299,23 @@ class WPEScreen(Screen):
 		<widget name="loading" position="640,495" size="640,90" font="Regular;36" halign="center" valign="center" foregroundColor="#ffffff" backgroundColor="#c0101820" zPosition="10" />
 	</screen>"""
 
-	def __init__(self, session, page, hwvideo=False, channel=None, ait=None):
+	def __init__(self, session, page, hwvideo=False, channel=None, ait=None, pressRed=False, overlay=False):
 		Screen.__init__(self, session)
 		self.page = page
 		self.hwvideo = hwvideo
 		self.channel = channel  # (onid, tsid, sid, name) of the service the box is tuned to, for an application of a channel
 		self.ait = ait  # the AIT of that service (AitCollection): given to the engine, which starts the autostart application / the one chosen
 		self.aitSent = {}  # section number -> the section wpe_fb has been given
+		self.pressRed = pressRed  # started by the red button: press it for the user once the application is there
+		self.overlay = overlay  # runs on top of the live picture and enigma2's own screen (autostart): not a screen of its own, keys by key set
+		self.keyset = 0  # the keys the application has asked for (event "keyset"), see claimedKeys()
+		self.redTimer = eTimer()
+		self.redTimer.callback.append(lambda: self.sendKey("red"))
+		screens.append(self)
 		self.handover = None
 		self.closing = False
 		self.finished = False
+		self.started = False
 
 		actions = {name: (lambda name=name: self.sendKey(name)) for name in FORWARDED_KEYS}
 		actions.update({name + "Repeat": (lambda name=name: self.sendKey(name, repeat=True)) for name in REPEAT_KEYS})
@@ -297,6 +337,9 @@ class WPEScreen(Screen):
 		# starting takes a few seconds (wpe_fb and its web process, then the page): say so until wpe_fb reports the first page ("loaded"),
 		# or after 30 s whatever happens
 		self["loading"] = Label("Loading HbbTV ...")
+		if overlay:
+			self["overlay"] = Pixmap()  # the visible part of the application's frame (showOverlay)
+			self.overlaySeq = 0
 		self.loadingTimer = eTimer()
 		self.loadingTimer.callback.append(self.hideLoading)
 
@@ -320,11 +363,17 @@ class WPEScreen(Screen):
 	# --- process ---------------------------------------------------------------------------------------------
 
 	def start(self):
+		if self.started:
+			return  # a screen that is created as a dialog is started by its creator and again when its layout is finished: once is enough
+		self.started = True
 		if not os.path.exists(RUN):
 			self.session.open(MessageBox, f"{RUN} not found", MessageBox.TYPE_ERROR)
 			self.finish()
 			return
-		env = ""
+		env = "WPE_OVERLAY=1 " if self.overlay else ""
+		if self.overlay:
+			self["loading"].hide()  # an application that starts by itself on every zap does not announce itself
+			self["overlay"].hide()
 		self.loadingTimer.start(30000, True)
 		if self.hwvideo:
 			# Hardware video, but the live service keeps playing (an application runs on top of the live picture) until media
@@ -336,7 +385,7 @@ class WPEScreen(Screen):
 			except OSError:
 				pass
 			self.evtTimer.start(100, False)
-			env = "WPE_HWVIDEO=1 "
+			env += "WPE_HWVIDEO=1 "  # (added to WPE_OVERLAY=1: the automatic banner is started with hardware video too)
 		if self.channel:
 			# the application is started as a broadcast-related application of this service (run_wpe.sh validates it, wpe_fb reads it)
 			env += 'WPE_CHANNEL="%d %d %d %s" ' % self.channel
@@ -409,18 +458,55 @@ class WPEScreen(Screen):
 			return
 		lines = (self.evtBuf + data).split(b"\n")
 		self.evtBuf = lines.pop()  # an incomplete last line waits for the rest
+		newest = None
 		for line in lines:
 			event = line.strip().decode(errors="replace")
-			if event == "acquire" and self.handover and not self.finished:
+			if event.startswith("overlay "):
+				newest = event  # a picture that has been replaced already is not worth decoding: only the last of this batch is shown
+			elif event == "acquire" and self.handover and not self.finished:
 				self.handover.acquire()
 				self.freeTimer.start(1200, True)  # give enigma2 a moment to close the decoder before wpe_fb hands it out
+			elif event.startswith("keyset "):
+				try:
+					self.keyset = int(event.split()[1])
+				except (ValueError, IndexError):
+					pass
 			elif event == "loaded":
 				self.hideLoading()
+				if self.pressRed:
+					self.redTimer.start(RED_DELAY, True)  # the application has not registered its key handler at the moment its page is loaded
 			elif event == "release" and self.handover:
 				self.freeTimer.stop()
 				self.handover.release()
 			elif event.startswith("select "):
 				self.selectComponent(event.split())
+		if newest and self.overlay and not self.finished:
+			self.showOverlay(newest.split())
+
+	def showOverlay(self, words):
+		"""The automatic banner: wpe_fb has saved the visible part of the application's frame ("overlay <n> <x> <y> <w> <h> <png>", screen
+		coordinates; w = 0: nothing is visible) - it is shown by a Pixmap widget of this screen, so enigma2 itself composes it with everything else it
+		draws: no page flips to race, nothing to restore."""
+		try:
+			seq, x, y, w, h = (int(word) for word in words[1:6])
+			if seq <= self.overlaySeq:
+				return  # an older picture than the one shown
+			widget = self["overlay"].instance
+			if widget is None:
+				return
+			if w <= 0 or h <= 0:
+				widget.hide()
+				self.instance.resize(eSize(1, 1))
+			else:
+				# the screen is just as big as the picture and sits where it goes: enigma2 has to redraw nothing else
+				self.instance.resize(eSize(w, h))
+				self.instance.move(ePoint(x, y))
+				widget.resize(eSize(w, h))
+				widget.setPixmapFromFile(words[6])  # a file wpe_fb has already replaced by a newer one is skipped: the next event shows that one
+				widget.show()
+			self.overlaySeq = seq
+		except (ValueError, IndexError, RuntimeError) as error:
+			print("[WPEHbbTV] overlay: %s: %s" % (" ".join(words), error))
 
 	# --- the streams of the service --------------------------------------------------------------------------------
 
@@ -490,6 +576,7 @@ class WPEScreen(Screen):
 	def closeEvents(self):
 		self.evtTimer.stop()
 		self.loadingTimer.stop()
+		self.redTimer.stop()
 		self.freeTimer.stop()
 		self.componentsTimer.stop()
 		self.aitTimer.stop()
@@ -500,6 +587,9 @@ class WPEScreen(Screen):
 			self.evtFd = None
 
 	# --- leaving ---------------------------------------------------------------------------------------------
+
+	def running(self):
+		return not self.closing and not self.finished and self.container.running()
 
 	def stop(self):
 		if self.closing:
@@ -520,16 +610,27 @@ class WPEScreen(Screen):
 		self.closeEvents()
 		if self.handover:
 			self.handover.release()  # if media still had the decoder: the live service comes back, its window is fixed later
-		self.close()
+		if self.overlay:
+			self.session.deleteDialog(self)  # it was never opened as the top screen
+		else:
+			self.close()
 
 	def cleanup(self):
+		if self in screens:
+			screens.remove(self)
 		self.closeEvents()
+		if self.overlay:
+			for name in glob.glob(OVERLAY_FILES + "_*.png*"):  # wpe_fb removes them when it quits; after a crash or a kill they would stay
+				try:
+					os.remove(name)
+				except OSError:
+					pass
 		self.killTimer.stop()
 		if self.container.running():
 			self.container.kill()
 
 
-def pageChosen(session, choice, channel=None, ait=None):
+def pageChosen(session, choice, channel=None, ait=None, pressRed=False):
 	if choice:
 		size = getDesktop(0).size()
 		WPEScreen.skin = f"""<screen name="WPEScreen" position="0,0" size="{size.width()},{size.height()}" flags="wfNoBorder" backgroundColor="transparent">
@@ -539,7 +640,7 @@ def pageChosen(session, choice, channel=None, ait=None):
 		# they like) take the decoder from the live service; the other test pages leave the live picture alone
 		page = choice[1]
 		hwvideo = page.startswith(("http://", "https://", "ait:")) or os.path.basename(page).startswith("hw_")
-		session.open(WPEScreen, page, hwvideo, channel, ait)
+		session.open(WPEScreen, page, hwvideo, channel, ait, pressRed)
 
 
 def main(session, **kwargs):
@@ -776,8 +877,9 @@ class ChannelAppLauncher:
 	"""The "channel app" of the tuned service with its real AIT: read the AIT (a moment, in the background), let the user pick when several
 	applications are signalled, start it. Without a readable AIT the URL enigma2 keeps for the autostart application is used, as before."""
 
-	def __init__(self, session):
+	def __init__(self, session, redButton=False):
 		self.session = session
+		self.redButton = redButton  # started by the red button: the AUTOSTART application, and the red key goes to it as soon as it is there
 		self.ait = None
 		self.waited = 0.0
 		self.box = None
@@ -826,8 +928,8 @@ class ChannelAppLauncher:
 			self.fallback()
 			return
 		autostart = [app for app in apps if app["control"] == 1]
-		if len(apps) == 1 or (autostart and len(apps) == len(autostart)):
-			self.launch(apps[0])  # only one to choose
+		if len(apps) == 1 or (autostart and len(apps) == len(autostart)) or (self.redButton and autostart):
+			self.launch(autostart[0] if autostart else apps[0])  # only one to choose (the red button always takes the autostart application)
 			return
 		entries = [("%s%s" % (appName(app), "  (autostart)" if app["control"] == 1 else ""), app) for app in sorted(apps, key=lambda a: a["control"] != 1)]
 		self.session.openWithCallback(self.picked, ChoiceBox, title="HbbTV applications of %s  (EXIT closes)" % self.ait.channel[3], list=entries)
@@ -841,31 +943,198 @@ class ChannelAppLauncher:
 	def launch(self, app):
 		# the autostart application starts by itself (the engine runs it when the AIT is complete); another one by its locator
 		spec = "" if app["control"] == 1 else locatorOf(app)
-		pageChosen(self.session, (appName(app), "ait:" + spec), self.ait.channel, self.ait)
+		pageChosen(self.session, (appName(app), "ait:" + spec), self.ait.channel, self.ait, pressRed=self.redButton)
 
 	def fallback(self):
 		url = currentServiceAppUrl(self.session)
 		if not url.startswith(("http://", "https://")):
 			self.session.open(MessageBox, "The current channel does not signal an HbbTV application (no AIT).", MessageBox.TYPE_INFO, timeout=5)
 			return
-		pageChosen(self.session, (url, url), currentChannel(self.session))
+		pageChosen(self.session, (url, url), currentChannel(self.session), pressRed=self.redButton)
 
 
 launchers = []  # a launcher has to stay alive while it waits for the AIT
+screens = []  # the application screens that are open (WPEScreen adds itself, cleanup() removes it)
 
 
-def channelApp(session, **kwargs):
-	launcher = ChannelAppLauncher(session)
+def channelApp(session, redButton=False, **kwargs):
+	if screens or any(controller.overlay for controller in autostart):  # an application is on the screen already
+		return
+	launcher = ChannelAppLauncher(session, redButton)
 	launchers[:] = [launcher]
 	launcher.start()
+
+
+def prepareSkin():
+	"""The skin of the automatic banner: a transparent screen with one Pixmap widget, which shows the visible part of the application's frame (a PNG
+	from wpe_fb, see WPEScreen.showOverlay) on top of everything enigma2 has on the screen. The screen is 1x1 until there is something to show, and
+	then only as big as that (moved and resized in showOverlay): a window over the whole desktop makes enigma2 redraw everything below it, and the
+	infobar flickered when the banner started."""
+	WPEScreen.skin = """<screen name="WPEScreen" position="0,0" size="1,1" flags="wfNoBorder" backgroundColor="transparent">
+		<widget name="overlay" position="0,0" size="1,1" zPosition="5" alphatest="blend" />
+	</screen>"""
+
+
+class AutoStart:
+	"""The automatic HbbTV banner: when the box settles on a service whose AIT has an AUTOSTART application, it runs on top of the live picture (wpe_fb
+	--overlay-png: the visible part of its frame is shown by a Pixmap widget of a screen on top of enigma2's own), and the keys it has asked for - and
+	only those - go to it instead of to enigma2. Off unless the setting WPE_AUTOSTART is on."""
+
+	SETTLE = 3000  # ms on one service before anything is started (zapping through channels must not start and stop a browser each time)
+
+	def __init__(self, session):
+		self.session = session
+		self.overlay = None
+		self.collection = None
+		self.consumed = set()  # rc keys whose "make" was taken: their "break" is ours too
+		self.waited = 0.0
+		self.settleTimer = eTimer()
+		self.settleTimer.callback.append(self.settled)
+		self.aitTimer = eTimer()
+		self.aitTimer.callback.append(self.pollAit)
+		session.nav.event.append(self.navEvent)
+		eActionMap.getInstance().bindAction("", -maxsize - 1, self.keyEvent)
+
+	def enabled(self):
+		return readSettings()["WPE_AUTOSTART"] == "1"
+
+	def navEvent(self, event):
+		if event == iPlayableService.evStart:
+			self.cancelReading()
+			self.settleTimer.start(self.SETTLE, True)
+
+	def cancelReading(self):
+		self.aitTimer.stop()
+		if self.collection and not (self.overlay and self.overlay.ait is self.collection):
+			self.collection.stop()
+		self.collection = None
+
+	def settled(self):
+		channel = currentChannel(self.session)
+		if self.overlay:
+			if channel is None:
+				return  # the service is stopped for the decoder (the application plays media): nothing changed
+			if self.overlay.channel and tuple(channel[:3]) == tuple(self.overlay.channel[:3]):
+				return  # the same service (the decoder came back)
+			self.overlay.stop()  # another service: this application is not for it
+			self.settleTimer.start(2000, True)  # start for the new service when this one has gone
+			return
+		if channel is None or not self.enabled() or screens or self.collection:
+			return
+		try:
+			started = startAitReader(self.session)
+		except Exception as error:
+			print("[WPEHbbTV] autostart: cannot read the AIT: %s" % error)
+			return
+		if started:
+			self.collection = AitCollection(*started)
+			self.waited = 0.0
+			self.aitTimer.start(300, False)
+
+	def pollAit(self):
+		collection = self.collection
+		if not collection:
+			self.aitTimer.stop()
+			return
+		collection.drain()
+		self.waited += 0.3
+		if not (collection.complete() or collection.failed or self.waited > AIT_TIMEOUT + 1):
+			return
+		self.aitTimer.stop()
+		usable = [app for app in collection.apps() if app["control"] == 1 and app["http"]] if collection.sections else []
+		if usable and self.enabled() and not screens and not self.overlay:
+			self.startOverlay(collection)
+		else:
+			collection.stop()
+			self.collection = None
+
+	def startOverlay(self, collection):
+		try:
+			prepareSkin()
+			overlay = self.session.instantiateDialog(WPEScreen, "ait:", True, collection.channel, collection, False, True)
+		except Exception as error:
+			print("[WPEHbbTV] autostart: cannot create the overlay: %s" % error)
+			collection.stop()
+			self.collection = None
+			return
+		self.overlay = overlay
+		overlay.onClose.append(self.overlayClosed)
+		overlay.show()  # a dialog made with instantiateDialog() is not on the screen until it is shown (its window is 1x1 until there is a picture)
+		overlay.start()
+
+	def overlayClosed(self):
+		self.overlay = None
+		self.collection = None
+		self.consumed.clear()
+
+	def keyEvent(self, key, flag):
+		"""enigma2's key hook: 1 = the key is taken (the application asked for it), 0 = enigma2 gets it as usual."""
+		overlay = self.overlay
+		if overlay is None or not overlay.running():
+			return 0
+		if flag == 1:  # break: goes where the make went
+			if key in self.consumed:
+				self.consumed.discard(key)
+				return 1
+			return 0
+		name = KEY_NAMES.get(key)
+		if name is None or flag not in (0, 2) or name not in claimedKeys(overlay.keyset):
+			return 0
+		self.consumed.add(key)
+		if flag == 0:
+			overlay.sendKey(name)
+		elif name in REPEAT_KEYS:
+			overlay.sendKey(name, repeat=True)
+		return 1
+
+
+class RedButtonHook:
+	"""enigma2 calls InfoBar.onHBBTVActivation when the red button is pressed on a service that signals a HbbTV application (the hook the old
+	HbbTV plugins used). The InfoBar does not exist yet when the session starts: register as soon as it does."""
+
+	def __init__(self, session):
+		self.session = session
+		self.tries = 0
+		self.timer = eTimer()
+		self.timer.callback.append(self.register)
+		self.timer.start(2000, False)
+
+	def register(self):
+		self.tries += 1
+		try:
+			from Screens.InfoBar import InfoBar
+			if InfoBar.instance is not None:
+				InfoBar.instance.onHBBTVActivation.append(self.activated)
+				self.timer.stop()
+		except Exception as error:
+			print("[WPEHbbTV] red button hook: %s" % error)
+		if self.tries > 90:
+			self.timer.stop()
+
+	def activated(self):
+		if readSettings()["WPE_REDBUTTON"] == "1":  # not reached while a running automatic application has taken the red key
+			channelApp(self.session, redButton=True)
+
+
+hooks = []  # what the session start set up, kept alive
+
+
+autostart = []  # the controller of the automatic banner (one)
+
+
+def sessionStart(reason, session=None, **kwargs):
+	if reason == 0 and session is not None and not hooks:
+		hooks.append(RedButtonHook(session))
+		autostart.append(AutoStart(session))
 
 
 
 # --- settings ------------------------------------------------------------------------------------------------
 # (key in the conf file, title, [(value, text), ...], default). The first value listed is NOT necessarily the default.
 SETTINGS = [
+	("WPE_REDBUTTON", "Red button starts the HbbTV application", [("1", "on"), ("0", "off")], "1"),
+	("WPE_AUTOSTART", "Automatic HbbTV banner when zapping (autostart)", [("0", "off"), ("1", "on")], "0"),
 	("WPE_HIDPI", "Render quality", [("1.5", "sharp (1.5x)"), ("1.25", "balanced (1.25x)"), ("1.0", "fast (1.0x)")], "1.5"),
-	("WPE_SIZE", "Screen size (smaller if the TV crops the edges)", [("100", "100% (all of the screen)"), ("95", "95%"), ("90", "90%"), ("85", "85%")], "100"),
 	("WPE_FAST_ANIM", "Shorter animations", [("0", "off"), ("1", "on")], "0"),
 	("WPE_PERSIST", "Keep cache, cookies and storage", [("1", "yes"), ("0", "no")], "1"),
 	("WPE_DEBUG", "Debug log (slower)", [("0", "off"), ("1", "on")], "0"),
@@ -961,5 +1230,6 @@ def Plugins(**kwargs):
 		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=main),
 		PluginDescriptor(name="WPE HbbTV: channel app", description="Run the HbbTV application of the current channel (ORB engine, mock platform)",
 		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=channelApp),
-		PluginDescriptor(name="WPE HbbTV: settings", description="Render quality, animations, stored data",
-		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=settingsMenu)]
+		PluginDescriptor(name="WPE HbbTV: settings", description="Red button, autostart, render quality, animations, stored data",
+		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=settingsMenu),
+		PluginDescriptor(where=PluginDescriptor.WHERE_SESSIONSTART, fnc=sessionStart)]
