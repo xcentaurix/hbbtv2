@@ -1,0 +1,69 @@
+Phase 1 results - switches, persistent session (2026-09-20)
+==========================================================
+Follows docs/phase0-results.txt. Runs: 9 more sessions on the box with the same scripted scenario (tools/box/nav_bench.sh; traces
+in docs/phase0-data/ are Phase 0, the Phase 1 ones were taken the same way: nav_q0a-c, nav_r1/r2, nav_pc, nav_pw1/pw2, nav_p1a, nav_rn/rl).
+Decisions taken before: default render scale stays 1.5 (sharp); cookies etc. persist; shortened animations are a switch.
+
+1. What was built (wpe_fb, run_wpe.sh, plugin; package enigma2-plugin-extensions-wpehbbtv 1.0-r1)
+--------------------------------------------------------------------------------------------
+ - Settings menu in the plugin ("WPE HbbTV: settings" in the extensions menu): render quality (sharp 1.5 / balanced 1.25 / fast 1.0),
+   shorter animations, keep cache/cookies/storage, debug log, limit key repeat, and "delete stored cache, cookies and storage".
+   OK on a line changes it (round and round), it applies at the next start. The values are KEY=VALUE lines in /etc/enigma2/wpehbbtv.conf
+   (WPE_HIDPI, WPE_FAST_ANIM, WPE_PERSIST, WPE_PERSIST_DIR, WPE_DEBUG, WPE_LIMIT_REPEAT); run_wpe.sh reads only these keys, never
+   evaluates the values (injection-tested), and an environment variable of the caller wins over the file.
+ - Persistent session (wpe_fb --persist DIR, default DIR /media/hdd/.wpe-data, on when /media/hdd is writable): HTTP cache (a
+   "document browser" cache, at most 75 MB; WebKit's default would take up to 1 GB), cookies (SQLite), local storage and IndexedDB.
+   After 4 sessions of the ZDF application: 6.3 MB, 212 files (cookies.sqlite, localStorage and IndexedDB databases, WebKitCache).
+ - Shorter animations (wpe_fb --fast-anim): as measured in phase 0; default off.
+ - Key repeat limiting (wpe_fb --limit-repeat): default off, see 2.3. The keymap now sends the remote's auto-repeat as separate actions.
+ - debug.js and the GStreamer debug output only with the "debug log" setting (see 2.4).
+
+2. Measurements
+---------------
+ 2.1 Persistent session (cold = empty directory, warm = the same directory again; the baseline is the ephemeral session of phase 0)
+                                base (3 runs)      cold      warm 1     warm 2
+     launch, MB downloaded        1.4 - 2.1         1.6       1.2        0.5
+     RED (tile strip), MB         0.5 - 0.6         0.7       0.6        0.7
+     15 focus moves, MB           1.3 - 1.5         1.4       1.5        1.6
+     OK -> KIKA page, MB          5.1 - 5.7         5.8       3.0        2.8
+     BACK, MB                     2.1 - 2.2         2.3       2.0        2.3
+     focus move to first frame    437/509/502 ms    418       522        627       (no change; the run-to-run spread is ~+-70 ms)
+   The cache saves a lot of what is downloaded at launch (-70% on the second warm run, -25% on the first) and for a page visited before
+   (KIKA -45%), but NOT for the tile strip, the focus moves or going BACK: those requests are evidently not cacheable (dynamic data
+   or headers that forbid it). It does not change how fast a key press is answered - that is the read-back, unaffected by downloads.
+   The real gain is functional: the applications keep their cookies, local storage and IndexedDB between sessions.
+ 2.2 Shorter animations, render scale: unchanged from phase 0 (docs/phase0-results.txt).
+ 2.3 Key repeat limiting. The burst of the scenario (10 "right" keys 150 ms apart = a held key), first key as "key", the others as
+     "keyrepeat":
+                                base (3 runs)   limiting on (3 runs)
+     keys passed on to the page      10                3
+     frames until the page is quiet again after the last key: 1.4 - 1.8 s      2.2 - 3.0 s
+     pixels read back in that time   6.0 - 7.6 Mpx    7.6 - 8.1 Mpx
+   The hypothesis of phase 0 - the page keeps moving after release because it is working through a queue of steps - is refuted: three
+   forwarded keys cost as many frames and pixels as ten, because the step animations overlap. The limiting only makes a held key move
+   fewer tiles (3 instead of 10 in 1.3 s). That may feel better or worse; it is not faster. Hence a switch, default off.
+   (In these runs the focus ended on another tile, so the following OK opened a different page: the OK/BACK columns of those runs are not
+   comparable with the others.)
+   Final check with the code that is shipped (limiting off unless asked for): without --limit-repeat 10 of 10 keys reach the page and
+   none is dropped; with it 4 pass, 6 are dropped, and the page is quiet again 2.4 s after the last key against 1.6 s (nav_rn / nav_rl).
+ 2.4 Quiet logging (no debug.js, GStreamer debug level 2), 4 runs: focus move to first frame 383/515/443/503 ms against 437/509/502 with
+   logging: no measurable difference. The default is quiet anyway (WPE_DEBUG=0) for another reason: at debug level 4 the DVB sinks log a
+   line for every chunk of audio, which can fill the RAM-backed /tmp during a long film; turn the "debug log" setting on when the
+   "[page] ..." lines are needed.
+ 2.5 No main loop stalls over 150 ms in any of the 9 runs but one 120 ms (p1a).
+
+3. Where this leaves the speed at the default render scale (1.5)
+----------------------------------------------------------------
+ Nothing in phase 1 makes a focus move at 1.5x faster than the ~480 ms of phase 0; that time is the read-back (10-11 MB/s) of the
+ ~1.4 Mpx a move repaints. What phase 1 provides: the settings that trade sharpness for speed (1.25x: -34%, 1.0x: -71%), the animation switch
+ (-70% background load on constantly animating pages, held key tail 1.6 -> 0.7 s), and the stored application state. Getting a focus
+ move at 1.5x below ~200 ms needs a faster way to get the frame off the GPU (spike S1 in phase 0 results, section 5) or less to
+ repaint (the animation switch helps here only where the page animates via CSS).
+
+4. Limits of these measurements
+-------------------------------
+ - Headless runs (no framebuffer conversion/copy), one run per variant (three for the baseline, quiet and repeat).
+ - In 3 of the 17 sessions the RED phase never went idle: the application kept downloading ~6 MB for the whole 90 s wait (probably a
+   preview the application fetches although autoplay is denied). The focus moves of those runs are normal; not investigated further.
+ - The persistent-session effect on start-up time is not visible in "frames stopped after N s": that value swings between 2 and 12 s
+   from run to run with the application's own content.

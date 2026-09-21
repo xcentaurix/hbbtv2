@@ -1,10 +1,15 @@
 <keymap>
 	<!-- Keys the WPE HbbTV test screen takes over while it is open; everything else keeps its normal meaning. -->
 	<map context="WPEHbbTVActions">
-		<key id="KEY_UP" mapto="up" flags="mr" />
-		<key id="KEY_DOWN" mapto="down" flags="mr" />
-		<key id="KEY_LEFT" mapto="left" flags="mr" />
-		<key id="KEY_RIGHT" mapto="right" flags="mr" />
+		<!-- the arrow keys: the first press and the remote's auto-repeat are different actions (the repeat is rate limited by wpe_fb) -->
+		<key id="KEY_UP" mapto="up" flags="m" />
+		<key id="KEY_UP" mapto="upRepeat" flags="r" />
+		<key id="KEY_DOWN" mapto="down" flags="m" />
+		<key id="KEY_DOWN" mapto="downRepeat" flags="r" />
+		<key id="KEY_LEFT" mapto="left" flags="m" />
+		<key id="KEY_LEFT" mapto="leftRepeat" flags="r" />
+		<key id="KEY_RIGHT" mapto="right" flags="m" />
+		<key id="KEY_RIGHT" mapto="rightRepeat" flags="r" />
 		<key id="KEY_OK" mapto="ok" flags="m" />
 		<key id="KEY_BACK" mapto="back" flags="m" />
 		<key id="KEY_EXIT" mapto="exit" flags="m" />

@@ -1,0 +1,33 @@
+box: 1704 installed names (incl. provides)
+build tree: 4787 ipks, 6189 names
+
+TO ADD (not on the box, or too old there):
+  brotli                                         1.2.0-r0                 cortexa15hf-neon-vfpv4      345928  cortexa15hf-neon-vfpv4/brotli_1.2.0-r0_cortexa15hf-neon-vfpv4.ipk
+  directfb                                       1.7.7-r0                 dm900                      1021056  dm900/directfb_1.7.7-r0_dm900.ipk
+  gstreamer1.0-plugins-base-gio                  1.28.4-r0                cortexa15hf-neon-vfpv4       18960  cortexa15hf-neon-vfpv4/gstreamer1.0-plugins-base-gio_1.28.4-r0_cortexa15hf-neon-vfpv4.ipk
+  gstreamer1.0-plugins-base-volume               1.28.4-r0                cortexa15hf-neon-vfpv4       12828  cortexa15hf-neon-vfpv4/gstreamer1.0-plugins-base-volume_1.28.4-r0_cortexa15hf-neon-vfpv4.ipk
+  gstreamer1.0-plugins-good-audiofx              1.28.3-r0                cortexa15hf-neon-vfpv4       53656  cortexa15hf-neon-vfpv4/gstreamer1.0-plugins-good-audiofx_1.28.3-r0_cortexa15hf-neon-vfpv4.ipk
+  gstreamer1.0-plugins-good-deinterlace          1.28.3-r0                cortexa15hf-neon-vfpv4       51440  cortexa15hf-neon-vfpv4/gstreamer1.0-plugins-good-deinterlace_1.28.3-r0_cortexa15hf-neon-vfpv4.ipk
+  gstreamer1.0-plugins-good-interleave           1.28.3-r0                cortexa15hf-neon-vfpv4       20006  cortexa15hf-neon-vfpv4/gstreamer1.0-plugins-good-interleave_1.28.3-r0_cortexa15hf-neon-vfpv4.ipk
+  libcairo2                                      1.17.4-r0                cortexa15hf-neon-vfpv4      453860  cortexa15hf-neon-vfpv4/libcairo2_1.17.4-r0_cortexa15hf-neon-vfpv4.ipk
+  libepoxy0                                      1.5.10-r0                cortexa15hf-neon-vfpv4      206804  cortexa15hf-neon-vfpv4/libepoxy0_1.5.10-r0_cortexa15hf-neon-vfpv4.ipk
+  libfontconfig1                                 2.17.1-r0                cortexa15hf-neon-vfpv4      139214  cortexa15hf-neon-vfpv4/libfontconfig1_2.17.1-r0_cortexa15hf-neon-vfpv4.ipk
+  libgstfft-1.0-0                                1.28.4-r0                cortexa15hf-neon-vfpv4       15802  cortexa15hf-neon-vfpv4/libgstfft-1.0-0_1.28.4-r0_cortexa15hf-neon-vfpv4.ipk
+  libharfbuzz-icu0                               12.3.2-r0                cortexa15hf-neon-vfpv4        3842  cortexa15hf-neon-vfpv4/libharfbuzz-icu0_12.3.2-r0_cortexa15hf-neon-vfpv4.ipk
+  libharfbuzz0                                   12.3.2-r0                cortexa15hf-neon-vfpv4      439394  cortexa15hf-neon-vfpv4/libharfbuzz0_12.3.2-r0_cortexa15hf-neon-vfpv4.ipk
+  libicudata78                                   78.3-r0                  cortexa15hf-neon-vfpv4    11727358  cortexa15hf-neon-vfpv4/libicudata78_78.3-r0_cortexa15hf-neon-vfpv4.ipk
+  libicui18n78                                   78.3-r0                  cortexa15hf-neon-vfpv4     1111218  cortexa15hf-neon-vfpv4/libicui18n78_78.3-r0_cortexa15hf-neon-vfpv4.ipk
+  libicuuc78                                     78.3-r0                  cortexa15hf-neon-vfpv4      717016  cortexa15hf-neon-vfpv4/libicuuc78_78.3-r0_cortexa15hf-neon-vfpv4.ipk
+  libnghttp2-14                                  1.68.1-r0                cortexa15hf-neon-vfpv4       76092  cortexa15hf-neon-vfpv4/libnghttp2-14_1.68.1-r0_cortexa15hf-neon-vfpv4.ipk
+  libpixman-1-0                                  1:0.46.4-r0              cortexa15hf-neon-vfpv4      183642  cortexa15hf-neon-vfpv4/libpixman-1-0_0.46.4-r0_cortexa15hf-neon-vfpv4.ipk
+  libsoup                                        3.6.6-r0                 cortexa15hf-neon-vfpv4      228732  cortexa15hf-neon-vfpv4/libsoup_3.6.6-r0_cortexa15hf-neon-vfpv4.ipk
+  libwpewebkit-2.0-web-inspector-plugin          2.54.0-r0                cortexa15hf-neon-vfpv4     1386116  cortexa15hf-neon-vfpv4/libwpewebkit-2.0-web-inspector-plugin_2.54.0-r0_cortexa15hf-neon-vfpv4.ipk
+  libxcb-render0                                 1.17.0-r0                cortexa15hf-neon-vfpv4       13708  cortexa15hf-neon-vfpv4/libxcb-render0_1.17.0-r0_cortexa15hf-neon-vfpv4.ipk
+  libxkbcommon0                                  1.13.1-r0                cortexa15hf-neon-vfpv4      152444  cortexa15hf-neon-vfpv4/libxkbcommon0_1.13.1-r0_cortexa15hf-neon-vfpv4.ipk
+  libxrender1                                    1:0.9.12-r0              cortexa15hf-neon-vfpv4       14576  cortexa15hf-neon-vfpv4/libxrender1_0.9.12-r0_cortexa15hf-neon-vfpv4.ipk
+  woff2                                          1.0.2-r0                 cortexa15hf-neon-vfpv4       39246  cortexa15hf-neon-vfpv4/woff2_1.0.2-r0_cortexa15hf-neon-vfpv4.ipk
+  total 18.4 MB in 24 packages
+
+no core/version problems
+
+no unresolved dependencies

@@ -27,8 +27,25 @@
  *     --hwvideo         <video> plays on the hardware video plane (dvbvideosink hole-punch, needs the WebKit Dreambox quirks)
  *     --hwvideo-lazy    like --hwvideo, but the live service keeps playing until media needs the decoder: the web process
  *                       asks for it over a socket (see "decoder handover"), ctl "decoder-free" answers
- *     --evt PATH        FIFO on which "acquire"/"release" events for the enigma2 plugin are written (with --hwvideo-lazy)
+ *     --evt PATH        FIFO on which events for the enigma2 plugin are written (with --hwvideo-lazy): "acquire"/"release" (decoder handover),
+ *                       "loaded" (the first page has finished loading),
+ *                       "select audio|subtitle <pid>|default|none" (the application chose an audio track / subtitle)
+ *     --trace           timestamped "T ..." lines on stderr for keys, frames (damage, blit time) and acks (see TRACE)
+ *     --autoplay deny   media never starts by itself (measurements: no software decoding of previews)
+ *     --scrollbars      (with --orb) keep WebKit's scrollbars (they are hidden by default: a TV shows none)
+ *     --fast-anim       (with --orb) CSS transitions/animations last 1 ms and smooth scrolling is off: fewer frames per step
+ *     --persist DIR     keep the HTTP cache (<= 75 MB), cookies and local storage of the applications in DIR between runs
+ *     --no-debug-js     do not inject DIR/debug.js (the page's console/media events in the log)
+ *     --limit-repeat    pass on the remote's auto-repeat ("keyrepeat" commands) at most once per delivered frame (feel, not speed)
  *     --info            print the framebuffer parameters and exit
+ *
+ * Control FIFO (--ctl): channel <onid> <tsid> <sid> <name> (the service enigma2 is tuned to: "app" then starts a broadcast-related
+ * application of it), service <onid> <tsid> <sid> + ait <pid> <sid> <hex> (the real AIT: the service was selected, one raw AIT section of it;
+ * the engine then runs the AUTOSTART application, resolves "app dvb://current.ait/<org>.<app>"), ait-stop (the broadcast stopped),
+ * components <V:pid:enc:crypt:aspect;A:pid:lang:enc:channels:active:ad;S:pid:lang:enc:active:hi> (its video, audio and
+ * subtitle streams, see orb_host.h; sent again whenever they change), key <name>, keyrepeat <name> (auto-repeat; with --limit-repeat dropped while the page is still answering the previous key),
+ * keydown <name>, keyup <name>, load <url>, app <url>, decoder-free, mark <text> (trace marker),
+ * dump <file.ppm> (the canvas as it is now), quit.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -50,6 +67,27 @@
 #include <wpe/webkit.h>
 
 #include "orb_host.h"
+
+/* --trace: one line per event on stderr, "T <monotonic microseconds> <what>": keys in/out, frames delivered by WebKit (damage, blit time),
+ * acknowledgements, and marks put in by the harness (ctl "mark <text>"). tools/box/nav_analyze.py turns them into latencies. */
+static gboolean trace;
+static gboolean autoplay_deny; /* --autoplay deny */
+static gboolean fast_anim; /* --fast-anim */
+static gboolean show_scrollbars; /* --scrollbars */
+static const char *persist_dir; /* --persist DIR: HTTP cache, cookies, local storage survive between runs */
+static gboolean no_debug_js; /* --no-debug-js */
+/* --limit-repeat: the remote's auto-repeat ("keyrepeat <key>") is passed on at most once per delivered frame, so a held key moves as
+ * many steps as the screen can show. MEASURED (docs/phase1-results.txt): this does NOT shorten the time the page keeps moving after
+ * the key is released and does not reduce the frames or pixels (overlapping step animations cost about as much as spaced ones); it only
+ * makes a held key move fewer steps (3 instead of 10 in 1.3 s). So it is a matter of feel, off by default. Without the option a
+ * "keyrepeat" is an ordinary "key". A key that produced no frame within REPEAT_HOLD_US (nothing changed, e.g. at the end of a list)
+ * does not hold back the next repeat. */
+#define REPEAT_HOLD_US 1200000
+static gboolean limit_repeat; /* --limit-repeat */
+static gboolean key_awaits_frame; /* a key was delivered to the application and no frame has arrived since */
+static gint64 key_sent_us;
+static guint64 repeats_forwarded, repeats_dropped;
+#define TRACE(...) do { if (trace) { fprintf(stderr, "T %lld ", (long long)g_get_monotonic_time()); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
 /* ------------------------------------------------------------------------------------------------ output ---- */
 
@@ -398,6 +436,7 @@ static gboolean complete_frame(gpointer data)
         g_object_unref(b);
     }
     last_complete_us = g_get_monotonic_time();
+    TRACE("ack");
     return G_SOURCE_REMOVE;
 }
 
@@ -440,6 +479,13 @@ static gboolean view_render_buffer(WPEView *v, WPEBuffer *buffer, const WPERecta
     if (!out.first_us)
         out.first_us = t1;
     out.last_us = t1;
+    key_awaits_frame = FALSE; /* the page has answered (see REPEAT_HOLD_US) */
+    if (trace) {
+        char list[160] = "";
+        for (guint i = 0; i < n_rects && i < 3; i++)
+            snprintf(list + strlen(list), sizeof list - strlen(list), " r%u=%d,%d,%d,%d", i, rects[i].x, rects[i].y, rects[i].width, rects[i].height);
+        TRACE("frame %llu rects=%u px=%lld blit_ms=%.2f%s", (unsigned long long)out.frames, n_rects, (long long)pixels, (t1 - t0) / 1000.0, list);
+    }
 
     /* pace the frame loop at ~60 Hz like a vsync'd display */
     if (pending_buffer)
@@ -641,10 +687,21 @@ static void plane_restore(void)
 
 /* ------------------------------------------------------------------------------------------- main ---- */
 
+static void evt_send(const char *line);
+
 static void on_load_changed(WebKitWebView *v, WebKitLoadEvent ev, gpointer data)
 {
     static const char *names[] = { "STARTED", "REDIRECTED", "COMMITTED", "FINISHED" };
+    static gboolean told;
     fprintf(stderr, "load-changed: %s\n", (unsigned)ev < 4 ? names[ev] : "?");
+    if (ev == WEBKIT_LOAD_FINISHED && !told) {
+        /* the first real page is there: the plugin can take its "loading" message away (event FIFO, only with --hwvideo-lazy --evt) */
+        const char *uri = webkit_web_view_get_uri(v);
+        if (uri && strncmp(uri, "about:", 6)) {
+            told = TRUE;
+            evt_send("loaded\n");
+        }
+    }
 }
 
 static void on_title_changed(GObject *obj, GParamSpec *pspec, gpointer data)
@@ -692,6 +749,10 @@ static gboolean send_key(const char *name, gboolean down, gboolean up)
             if (up)
                 consumed |= orb_host_key(key_table[i].hbbtv, 0);
             fprintf(stderr, "orb key %s (%d): %s\n", name, key_table[i].hbbtv, consumed ? "consumed by the application" : "not in the application's key set");
+            if (consumed && down) {
+                key_awaits_frame = TRUE;
+                key_sent_us = g_get_monotonic_time();
+            }
             return TRUE;
         }
         for (int phase = 0; phase < 2; phase++) {
@@ -940,6 +1001,27 @@ static void orb_cb_exit_pressed(void *user)
     g_main_context_invoke(NULL, idle_quit, NULL);
 }
 
+/* The application selected an audio track / subtitle (Broadcast.overrideComponentSelection / restoreComponentSelection): enigma2 does the
+ * switching, so tell the plugin on the event FIFO (the one of the decoder handover, only there with --hwvideo-lazy --evt):
+ *   select audio <pid> | default | none        select subtitle <pid> | default | none
+ * Called from any thread; one write() of a short line is atomic. */
+static void orb_cb_select_component(int type, const char *what, void *user)
+{
+    const char *kind = type == 1 ? "audio" : type == 2 ? "subtitle" : NULL;
+    if (!kind || !what || !*what || strlen(what) > 16)
+        return;
+    for (const char *c = what; *c; c++)
+        if (!g_ascii_isalnum(*c)) /* pid, "default", "none": nothing else goes to the plugin */
+            return;
+    if (evt_fd < 0) {
+        fprintf(stderr, "orb: select %s %s: no event channel to the plugin (--evt), ignored\n", kind, what);
+        return;
+    }
+    char line[64];
+    snprintf(line, sizeof line, "select %s %s\n", kind, what);
+    evt_send(line);
+}
+
 /* orb://player: the page the polyfill's media element extension puts in an iframe to play audio/video (see ORB's
  * ORBWPEWebExtensionHelper::HandleORBURISchemeRequest). It is playerpage.html with the token of the page and two scripts
  * (iframe.js: the player logic that talks to the polyfill in the parent through postMessage, dash.all.min.js) inlined. */
@@ -985,7 +1067,7 @@ static void on_orb_scheme_request(WebKitURISchemeRequest *request, gpointer data
 
 static gpointer orb_launch_thread(gpointer url)
 {
-    orb_host_launch(url);
+    orb_host_launch_broadcast(url); /* a broadcast-related application of the channel the box is tuned to, if it told us (ctl "channel") */
     g_free(url);
     return NULL;
 }
@@ -999,8 +1081,25 @@ static void on_load_failed(WebKitWebView *v, WebKitLoadEvent ev, const char *uri
 
 static char *ctl_path;
 static int ctl_fd = -1, ctl_dummy_fd = -1;
-static char ctl_buf[512];
+static char ctl_buf[8192]; /* an AIT section as hex is up to ~2100 characters, a components line a few hundred */
 static size_t ctl_len;
+
+/* Write the current shadow canvas (what WebKit last delivered) as a PPM, alpha ignored. */
+static void dump_canvas(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "ctl: cannot write %s\n", path);
+        return;
+    }
+    fprintf(f, "P6\n%d %d\n255\n", out.w, out.h);
+    for (int i = 0; i < out.w * out.h; i++) {
+        const guint8 *p = out.canvas + (size_t)i * 4;
+        fputc(p[2], f); fputc(p[1], f); fputc(p[0], f);
+    }
+    fclose(f);
+    fprintf(stderr, "ctl: wrote %s (%dx%d)\n", path, out.w, out.h);
+}
 
 static void ctl_handle_line(char *line)
 {
@@ -1008,7 +1107,69 @@ static void ctl_handle_line(char *line)
     if (!*line)
         return;
     if (!strncmp(line, "key ", 4)) {
-        fprintf(stderr, "ctl: %s -> %s\n", line, send_key(line + 4, TRUE, TRUE) ? "sent" : "unknown key");
+        TRACE("key-in %s", line + 4);
+        gboolean sent = send_key(line + 4, TRUE, TRUE);
+        TRACE("key-done %s", line + 4);
+        fprintf(stderr, "ctl: %s -> %s\n", line, sent ? "sent" : "unknown key");
+    } else if (!strncmp(line, "keyrepeat ", 10)) {
+        if (limit_repeat && key_awaits_frame && g_get_monotonic_time() - key_sent_us < REPEAT_HOLD_US) {
+            repeats_dropped++;
+            TRACE("key-drop %s", line + 10);
+        } else {
+            repeats_forwarded++;
+            TRACE("key-in %s", line + 10);
+            send_key(line + 10, TRUE, TRUE);
+            TRACE("key-done %s", line + 10);
+        }
+    } else if (!strncmp(line, "channel ", 8)) {
+        /* channel <onid> <tsid> <sid> <name>: the service enigma2 is tuned to; the next "app" is launched as its broadcast-related application */
+        int onid, tsid, sid, used = 0;
+        if (sscanf(line + 8, "%d %d %d %n", &onid, &tsid, &sid, &used) >= 3 && orb_mode)
+            orb_host_set_channel(onid, tsid, sid, line + 8 + used);
+        else
+            fprintf(stderr, "ctl: channel needs --orb and \"<onid> <tsid> <sid> <name>\"\n");
+    } else if (!strncmp(line, "service ", 8)) {
+        /* service <onid> <tsid> <sid>: the service was selected (the engine waits for its AIT, see orb_host_service_selected) */
+        int onid, tsid, sid;
+        if (sscanf(line + 8, "%d %d %d", &onid, &tsid, &sid) == 3 && orb_mode)
+            orb_host_service_selected(onid, tsid, sid);
+        else
+            fprintf(stderr, "ctl: service needs --orb and \"<onid> <tsid> <sid>\"\n");
+    } else if (!strncmp(line, "ait ", 4)) {
+        /* ait <pid> <sid> <hex>: one raw AIT section of the selected service */
+        int pid, sid, used = 0;
+        if (orb_mode && sscanf(line + 4, "%d %d %n", &pid, &sid, &used) >= 2 && used) {
+            const char *hex = line + 4 + used;
+            size_t digits = strlen(hex), length = digits / 2;
+            guint8 *data = length ? g_malloc(length) : NULL;
+            gboolean ok = data != NULL && digits % 2 == 0;
+            for (size_t i = 0; ok && i < length; i++) {
+                int hi = g_ascii_xdigit_value(hex[2 * i]), lo = g_ascii_xdigit_value(hex[2 * i + 1]);
+                if (hi < 0 || lo < 0)
+                    ok = FALSE;
+                else
+                    data[i] = (guint8)(hi << 4 | lo);
+            }
+            if (ok)
+                orb_host_ait_section(pid, sid, data, (unsigned int)length);
+            else
+                fprintf(stderr, "ctl: ait: bad hex data\n");
+            g_free(data);
+        } else
+            fprintf(stderr, "ctl: ait needs --orb and \"<pid> <sid> <hex>\"\n");
+    } else if (!strcmp(line, "ait-stop")) {
+        if (orb_mode)
+            orb_host_broadcast_stopped();
+    } else if (!strncmp(line, "components", 10) && (line[10] == ' ' || line[10] == '\0')) {
+        /* components <V:...;A:...;S:...>: the streams of the tuned service as enigma2 reports them (see orb_host.h); "components" alone = none */
+        if (orb_mode)
+            orb_host_set_components(line[10] ? line + 11 : "");
+        else
+            fprintf(stderr, "ctl: components needs --orb\n");
+    } else if (!strncmp(line, "mark ", 5)) {
+        TRACE("mark %s", line + 5);
+    } else if (!strncmp(line, "dump ", 5)) {
+        dump_canvas(line + 5);
     } else if (!strncmp(line, "keydown ", 8)) {
         send_key(line + 8, TRUE, FALSE);
     } else if (!strncmp(line, "keyup ", 6)) {
@@ -1029,6 +1190,17 @@ static void ctl_handle_line(char *line)
         g_main_loop_quit(loop);
     } else
         fprintf(stderr, "ctl: unknown command '%s'\n", line);
+}
+
+/* --trace: a 50 ms timer that reports when the main loop did not get to it in time (something blocked the loop for that long). */
+static gint64 watchdog_last_us;
+static gboolean loop_watchdog(gpointer data)
+{
+    gint64 now = g_get_monotonic_time();
+    if (watchdog_last_us && now - watchdog_last_us > 150000)
+        TRACE("loop-late %.0f ms", (now - watchdog_last_us - 50000) / 1000.0);
+    watchdog_last_us = now;
+    return G_SOURCE_CONTINUE;
 }
 
 static gboolean ctl_readable(GIOChannel *source, GIOCondition cond, gpointer data)
@@ -1132,6 +1304,13 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--hwvideo")) hwvideo = TRUE;
         else if (!strcmp(argv[i], "--hwvideo-lazy")) { hwvideo = TRUE; hw_lazy = TRUE; }
         else if (!strcmp(argv[i], "--evt") && i + 1 < argc) evt_arg = argv[++i];
+        else if (!strcmp(argv[i], "--trace")) trace = TRUE;
+        else if (!strcmp(argv[i], "--fast-anim")) fast_anim = TRUE;
+        else if (!strcmp(argv[i], "--scrollbars")) show_scrollbars = TRUE;
+        else if (!strcmp(argv[i], "--persist") && i + 1 < argc) persist_dir = argv[++i];
+        else if (!strcmp(argv[i], "--no-debug-js")) no_debug_js = TRUE;
+        else if (!strcmp(argv[i], "--limit-repeat")) limit_repeat = TRUE;
+        else if (!strcmp(argv[i], "--autoplay") && i + 1 < argc) autoplay_deny = !strcmp(argv[++i], "deny");
         else if (argv[i][0] != '-') page = argv[i];
         else { fprintf(stderr, "unknown option %s\n", argv[i]); return 2; }
     }
@@ -1225,11 +1404,32 @@ int main(int argc, char **argv)
     }
     wpe_display_set_primary(display);
 
-    WebKitNetworkSession *session = webkit_network_session_new_ephemeral();
+    WebKitNetworkSession *session;
+    if (persist_dir) {
+        /* what a TV does: the HTTP cache, cookies and local storage of the applications survive between runs (the cache is a
+         * "document browser" cache: at most 75 MB; the default "web browser" model would take up to 1 GB of the disk) */
+        char *data_dir = g_build_filename(persist_dir, "data", NULL), *cache_dir = g_build_filename(persist_dir, "cache", NULL);
+        if (g_mkdir_with_parents(data_dir, 0700) == 0 && g_mkdir_with_parents(cache_dir, 0700) == 0) {
+            webkit_web_context_set_cache_model(webkit_web_context_get_default(), WEBKIT_CACHE_MODEL_DOCUMENT_BROWSER);
+            session = webkit_network_session_new(data_dir, cache_dir);
+            /* cookies are kept in memory unless a file is named */
+            char *cookie_file = g_build_filename(data_dir, "cookies.sqlite", NULL);
+            webkit_cookie_manager_set_persistent_storage(webkit_network_session_get_cookie_manager(session), cookie_file, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
+            g_free(cookie_file);
+            fprintf(stderr, "persistent session: data %s, cache %s\n", data_dir, cache_dir);
+        } else {
+            fprintf(stderr, "cannot create %s: the session is not persistent\n", persist_dir);
+            session = webkit_network_session_new_ephemeral();
+        }
+        g_free(data_dir);
+        g_free(cache_dir);
+    } else
+        session = webkit_network_session_new_ephemeral();
     /* A TV has no pointer and no "user gesture": HbbTV applications start audio/video by themselves, with sound. WebKit's
      * default autoplay policy is ALLOW_WITHOUT_SOUND, which rejects play() of any clip that has an audio track
      * (NotAllowedError). (The media-playback-requires-user-gesture setting is off by default and is not what blocks it.) */
-    WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);
+    /* --autoplay deny (measurements): no media starts by itself, so that a preview does not software-decode on the box's two cores */
+    WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies("autoplay", autoplay_deny ? WEBKIT_AUTOPLAY_DENY : WEBKIT_AUTOPLAY_ALLOW, NULL);
     if (orb_mode) {
         /* web process extension (bridge to the engine) + the ORB polyfill as a document-start user script */
         char *ext_dir = g_build_filename(orb_dir, "ext", NULL);
@@ -1247,7 +1447,7 @@ int main(int argc, char **argv)
             /* optional: DIR/debug.js forwards the page's console, errors and media events to this process's log; it goes
              * first so that it also sees what the polyfill and the application do at load time */
             char *debug_path = g_build_filename(orb_dir, "debug.js", NULL), *debug_source = NULL;
-            if (g_file_get_contents(debug_path, &debug_source, NULL, NULL)) {
+            if (!no_debug_js && g_file_get_contents(debug_path, &debug_source, NULL, NULL)) {
                 /* all frames: the polyfill's player runs in an orb://player iframe (frames without wpeBridge skip it) */
                 WebKitUserScript *debug_script = webkit_user_script_new(debug_source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, NULL, NULL);
                 webkit_user_content_manager_add_script(ucm, debug_script);
@@ -1255,6 +1455,23 @@ int main(int argc, char **argv)
                 g_free(debug_source);
             }
             g_free(debug_path);
+        }
+        if (!show_scrollbars) {
+            /* A TV shows no scrollbars: applications are operated with the remote and scroll themselves. One that overflows the view for
+             * a moment while it starts (the ZDF main application) would flash WebKit's default ones. */
+            static const char css[] = "html, body, * { scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }";
+            WebKitUserStyleSheet *sheet = webkit_user_style_sheet_new(css, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_STYLE_LEVEL_USER, NULL, NULL);
+            webkit_user_content_manager_add_style_sheet(ucm, sheet);
+            webkit_user_style_sheet_unref(sheet);
+        }
+        if (fast_anim) {
+            /* every animation/transition step is a frame that has to be read back from the GPU (slow): make them (nearly) instant.
+             * 1 ms, not "none", so that transitionend/animationend still fire and applications waiting for them do not hang */
+            static const char css[] = "*, *::before, *::after { transition-duration: 1ms !important; transition-delay: 0s !important; "
+                                      "animation-duration: 1ms !important; animation-delay: 0s !important; scroll-behavior: auto !important; }";
+            WebKitUserStyleSheet *sheet = webkit_user_style_sheet_new(css, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_STYLE_LEVEL_USER, NULL, NULL);
+            webkit_user_content_manager_add_style_sheet(ucm, sheet);
+            webkit_user_style_sheet_unref(sheet);
         }
         char *js_path = g_build_filename(orb_dir, "hbbtv.js", NULL), *source = NULL;
         if (!g_file_get_contents(js_path, &source, NULL, &error)) {
@@ -1284,6 +1501,8 @@ int main(int argc, char **argv)
         webkit_settings_set_media_playback_allows_inline(media_settings, TRUE);
         if (orb_mode)
             webkit_settings_set_enable_write_console_messages_to_stdout(media_settings, TRUE);
+        if (fast_anim)
+            webkit_settings_set_enable_smooth_scrolling(media_settings, FALSE);
     }
     if (transparent) {
         WebKitColor color = { 0, 0, 0, 0 };
@@ -1322,6 +1541,8 @@ int main(int argc, char **argv)
         ctl_open(ctl);
     if (out.fb_on && out.guard)
         g_timeout_add(10, guard_tick, NULL);
+    if (trace)
+        g_timeout_add(50, loop_watchdog, NULL);
 
     if (orb_mode) {
         OrbHostCallbacks cb = { orb_cb_eval_js, orb_cb_load_url, orb_cb_set_visible, orb_cb_exit_pressed, NULL };
@@ -1331,6 +1552,7 @@ int main(int argc, char **argv)
             fb_restore_area();
             return 4;
         }
+        orb_host_set_component_handler(orb_cb_select_component, NULL);
         {
             /* HbbTV servers sniff the user agent for the "HbbTV/x.y.z (...)" token the engine provides */
             WebKitSettings *settings = webkit_web_view_get_settings(view);
@@ -1390,6 +1612,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "== guard: %s; %llu page flips seen, %llu repaints (%llu without a flip = overwritten in place), slowest repaint %.1f ms\n",
             out.guard ? "on" : "off", (unsigned long long)out.flips, (unsigned long long)out.repaints, (unsigned long long)out.overwrites, out.max_repaint_ms);
 
+    if (repeats_forwarded || repeats_dropped)
+        fprintf(stderr, "== keys: %llu auto-repeats forwarded, %llu dropped while the page was still answering the previous key\n",
+            (unsigned long long)repeats_forwarded, (unsigned long long)repeats_dropped);
     if (orb_mode)
         orb_host_stop();
     if (hw_lazy)

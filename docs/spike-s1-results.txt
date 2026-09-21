@@ -1,0 +1,91 @@
+Spike S1 - can the GPU frame reach the CPU faster than glReadPixels?   2026-09-21
+=============================================================================
+
+Question (docs/phase0-results.txt section 5): glReadPixels on the DM900 vendor GLES (VideoCore V / V3D-530, libvc5dream) runs at
+13.7 MB/s, which makes every large repaint cost ~0.4-0.6 s at 1920x1080 (1.5x render scale). Is there a path that is >= 4x faster?
+
+Answer: YES. A pixmap surface on ION memory + a GPU blit of the damaged rectangles + an NEON copy is 4.7-6.5x faster than today
+(measured, 1920x1080, uncached memory, no risk of stale data). A cached-memory variant reads 100x faster but has no working cache
+invalidation on this kernel (details below), so it is not usable as it stands.
+
+Tools (tools/probes/, build: build_pixmap_bench.sh <name>; all offscreen, they do not touch the screen or enigma2's surfaces;
+binaries on the box: /media/hdd/wpe-test/bin/pixmap_bench{,2,3,4}):
+  pixmap_bench.c   ION memory + eglCreatePlatformPixmapSurfaceEXT + read speed of the mappings
+  pixmap_bench2.c  ION heap scan, load patterns, texture FBO -> glBlitFramebuffer -> pixmap for realistic damage rectangles at 1920x1080
+  pixmap_bench3.c  128 byte loads, two reader threads, cached heap 1 as pixmap
+  pixmap_bench4.c  what goes stale with a cached buffer, and whether ION_IOC_SYNC / eviction / cacheflush() fix it
+
+1. How it works
+---------------
+ - The driver renders natively into "pixmap" surfaces described by a struct dmegl_pixmap_handle (EGL/dreameglplatform.h): memory the caller
+   provides (physical address + CPU mapping). enigma2's gEGLDC does this with the framebuffer pages (dreambox_window_provider.cpp).
+ - Memory: /dev/ion, ION_IOC_ALLOC from the BMEM heap (heap id mask 1 << (ION_HEAP_TYPE_CUSTOM + 1), the heap enigma2 uses for its
+   accelerator surfaces), ION_IOC_PHYS (physical address), ION_IOC_SHARE + mmap. The kernel has 640 MB + 384 MB of BMEM
+   (bmem=640M@384M bmem=384M@2048M on the command line); a 1920x1080 frame is 8.3 MB.
+ - Surface: any of the 33 EGL configs (all have EGL_PIXMAP_BIT); eglCreatePlatformPixmapSurfaceEXT(dpy, cfg, &handle, NULL) works with
+   fd = -1 or the share fd. The format fourcc is ignored: ABGR8888 and ARGB8888 give identical bytes.
+ - What lands in memory: LINEAR layout (a row of the gradient is smooth; pitch = width * 4), byte order R,G,B,A (memory order), the
+   rows top-first, i.e. MIRRORED against glReadPixels (which starts at the bottom): the pixel glReadPixels returns for row y is in
+   memory row H-1-y (264 of 264 samples). WebKit's Skia surface is BGRA: R and B have to be swapped on the way out (a shader swizzle
+   in the blit, or in the copy loop).
+ - GPU cost of drawing/blitting into the pixmap: 2.2 ms for a full-screen quad at 1280x720; glBlitFramebuffer of a texture FBO into the
+   pixmap + glFinish costs ~9-12 ms for one rectangle of any size (a fixed job cost; three separate blits cost ~28 ms: blit the
+   bounding box once, or as one job).
+
+2. Read speed of the mapping (what decides everything)
+------------------------------------------------------
+ ION memory from the BMEM heap is mapped UNCACHED (write-combining): ION_FLAG_CACHED is refused there (EINVAL). Reads of uncached memory
+ depend heavily on the load instruction (8.3 MB frame, copied into ordinary memory):
+     glibc memcpy                       28 MB/s      (= glReadPixels-class)
+     vld4q / vst4q intrinsics          106 MB/s
+     4x vld1q intrinsics                56 MB/s
+     vld1.64 {d0-d3}:256 x2            106 MB/s
+     ldmia r3-r10                      100 MB/s
+     vldmia {d0-d7} (64 B)             196-202 MB/s   <- best single thread
+     vldmia {d0-d15} (128 B)           189 MB/s
+     vldmia {d0-d15}, 2 threads        295 MB/s
+ (glReadPixels of WebKit's texture FBO: 13.7 MB/s. Reading a pixmap SURFACE with glReadPixels is 27 MB/s.)
+
+3. The WebKit-shaped path at 1920x1080 (texture FBO -> blit -> pixmap -> NEON row copy), per frame
+-----------------------------------------------------------------------------------------------
+ damage (rectangles from the ZDF/ARD traces)     today (glReadPixels)   pixmap path       gain
+  300x225 focus box (0.07 Mpx)                          20 ms               12 ms          1.7x
+  tile row 1730x272 (0.47 Mpx)                         136 ms               29 ms          4.7x
+  hero + tiles, 3 rects (1.37 Mpx)                     401 ms               86 ms          4.7x
+  big repaint 1785x1005 (1.79 Mpx)                     522 ms               81 ms          6.4x
+  whole frame (2.07 Mpx)                               598 ms               92 ms          6.5x
+ (blit + finish 9-28 ms, copy 3-80 ms at ~110-200 MB/s. With the best load (vldmia) row copies, one merged blit and two reader
+ threads the 1.37 Mpx case should come down to ~50-60 ms: > 7x. The "small focus move" case is dominated by the fixed blit cost.)
+ A typical ZDF/ARD key press produces 7-9 frames of 0.5-2 Mpx over ~6 s (trace of 2026-09-20 on ZDF): today ~0.8 s per frame.
+
+4. Cached memory: 100x faster reads, but no way to invalidate the CPU cache
+---------------------------------------------------------------------------
+ ION heap 1 (system_contig) accepts ION_FLAG_CACHED / CACHED_NEEDS_SYNC and returns physical addresses. As pixmap memory the GPU renders
+ into it correctly (0% wrong on a fresh buffer) and the CPU copies a frame at ~1350 MB/s: 1280x720 draw + finish + copy = 4.9 ms
+ total (1920x1080 would be ~11 ms). But the GPU writes past the CPU cache: pixel lines the CPU read earlier stay in the cache and
+ the CPU keeps seeing the OLD frame there. Measured (1280x720, CPU read the whole frame, GPU drew something else, CPU reads again):
+     no maintenance                          1.5-2.6% of the pixels stale   (the rest had been evicted; a rectangle read every frame stays cached = 100% stale)
+     ION_IOC_SYNC (rc 0)                     0.2-1.1% stale                 (ION's sync is a "for device" clean on this kernel, not an invalidate)
+     cacheflush() syscall                    0.7-1.2% stale                 (clean only on ARMv7)
+     stream 2 x 8 MB dummy through the cache 0.0% stale                     (eviction: probabilistic - random L2 replacement, ~15 stale lines (my estimate)
+                                                                             expected per 3.7 MB frame worst case, and it costs ~12 ms)
+ Also: an 8.3 MB contiguous cached allocation failed with ENOMEM (kernel memory fragmentation; 3.7 MB worked), so it cannot be counted on.
+ Not usable unless the kernel offers a real invalidate (a dma_sync_for_cpu path, e.g. DMA_BUF_IOCTL_SYNC, which 3.14 lacks).
+
+5. Recommendation
+-----------------
+ Build the uncached pixmap read-back into WebKit as a new patch (0013, dev-tree rebuild of AcceleratedSurface.cpp + relink), used when
+ WEBKIT_SHM_READBACK_PIXMAP=1 or automatically, with today's Skia readPixels as the fallback:
+   1. web process, once: open /dev/ion, allocate width*height*4 from BMEM, ION_IOC_PHYS/SHARE/mmap, create the pixmap surface;
+   2. per frame (in AcceleratedSurface's read-back, the Skia GL branch): skia flush + submit; make the shared Skia GL context current on
+      the pixmap surface; bind the Skia surface's texture as read FBO; blit the damaged rectangles (or their bounding box) with the R/B
+      swap (shader draw instead of glBlitFramebuffer), glFinish; restore the previous current surface; GrDirectContext::resetContext();
+   3. copy the rectangles from the mapping into the SHM bitmap with vldmia (rows mirrored: read memory row H-1-y), 2 threads for big
+      rectangles;
+   4. any failure -> the old glReadPixels path.
+ Risks: Skia's GL state after our raw GL calls (resetContext), eglMakeCurrent on the compositor thread, the mirrored rows and the R/B
+ swap (verify with WEBKIT_SHM_READBACK_VERIFY, the existing exact-comparison mode), the BMEM allocation in the web process (a leak ends
+ with the process: the ION fd is closed). Expected result: 4.7-7x shorter read-back, i.e. ~0.8 s -> ~0.12-0.17 s per big frame at
+ 1.5x render scale (sharp), roughly the speed 1.0x has today; smaller with a lower render scale on top.
+ Effort: ~1-2 days including the WebKit rebuilds (each ~20-40 min incremental).
+ The cached variant can be revisited if the kernel gains a cache invalidate.

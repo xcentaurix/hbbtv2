@@ -1,0 +1,28 @@
+label                           base1       base2       base3        h125         h10         fa1          q0
+launch idle s                      12           3           3          11          10           7          11
+launch MB                         2.1         1.4         1.5         2.1         2.0         1.9         2.0
+launch rb duty%                  45.1        36.0        44.7        28.6        21.5        44.0        37.3
+red idle s                          4           4           4           3           3           4           -
+red MB                            0.5         0.6         0.6         0.6         0.5         0.5         5.6
+red rb duty%                     37.8        39.8        38.7        29.5        23.6        34.4         4.2
+step latency ms (med)             437         509         502         319         141         438         383
+key waited ms (med)               6.0         4.5         6.9         6.4         4.2         6.0         3.2
+step latency ms (p90)             892         831         873         601         176         762         792
+step settle ms (med)              946         952         964         828        1237        1025        1005
+frames/step (med)                   3           3           3           3           4           2           3
+Kpx/step (med)                   1411        1882        1411         983         444        2074        1411
+read-back ms/step (med)           768         727         804         557         224         766         823
+rb duty% in steps                48.5        53.0        54.2        40.9        15.3        60.1        52.0
+burst backlog ms                 1762        1363        1845         891         366         672        1186
+burst key gap ms                  150         151         161         152         151         156         157
+OK first ms                      2322        2367        2149        1921        1617        2368        2447
+OK settle ms                    41703       42091       41484       41882       15196       39890       41945
+OK Mpx                           72.6        76.4        72.3         178        28.6        21.0        76.3
+OK rb duty%                      57.6        56.2        54.7        38.9        34.9        27.8        56.4
+loop stalls >150ms                  0           0           0           0           0           0           0
+stall total s                     0.0         0.0         0.0         0.0         0.0         0.0         0.0
+stall max ms                        0           0           0           0           0           0           0
+read-back MB/s                   10.4        10.8        10.8        10.9        10.0        11.0        10.9
+ms per rect                      -0.5        -0.4        -1.1        -0.7        -1.9         0.0        -0.5
+fixed ms/frame                    7.7         9.9        14.6         2.5         2.1        13.8        15.9
+blit ms/frame                     5.7         5.7         5.9         4.2         1.1         5.9         5.1

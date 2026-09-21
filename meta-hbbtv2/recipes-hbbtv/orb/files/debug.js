@@ -28,7 +28,13 @@
             return original.apply(console, arguments);
         };
     });
-    window.addEventListener('error', function (e) { send('window.onerror', [e.message, (e.filename || '') + ':' + e.lineno + ':' + e.colno]); }, true);
+    window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t !== window && t.tagName) // a resource that did not load (script, stylesheet, image, ...): say which one
+            send('resource error', [t.tagName, t.src || t.href || t.currentSrc || '(no url)']);
+        else
+            send('window.onerror', [e.message, (e.filename || '') + ':' + e.lineno + ':' + e.colno, e.error && e.error.stack ? e.error.stack.split('\n').slice(0, 3).join(' | ') : '']);
+    }, true);
     // applications often turn a rejected promise into their own error state; say what the rejection was (bounded)
     var caught = 0;
     var promiseCatch = Promise.prototype.catch;
@@ -94,6 +100,34 @@
         };
     } else
         send('MediaSource', ['NOT AVAILABLE']);
+
+    // the geometry the page sees, once loaded and again a few seconds later (HbbTV applications are laid out for 1280x720; one that sizes
+    // itself from screen.width or devicePixelRatio would come out too large): window, screen, pixel ratio, document and scrollbars
+    function geometry(when) {
+        var d = document.documentElement, b = document.body;
+        send('viewport ' + when, ['inner ' + window.innerWidth + 'x' + window.innerHeight, 'outer ' + window.outerWidth + 'x' + window.outerHeight,
+            'screen ' + screen.width + 'x' + screen.height + ' avail ' + screen.availWidth + 'x' + screen.availHeight, 'dpr ' + window.devicePixelRatio,
+            'client ' + d.clientWidth + 'x' + d.clientHeight, 'scroll ' + d.scrollWidth + 'x' + d.scrollHeight + (b ? ' body ' + b.scrollWidth + 'x' + b.scrollHeight : ''),
+            'overflow ' + getComputedStyle(d).overflow + '/' + (b ? getComputedStyle(b).overflow : '-'), 'zoom ' + (b ? getComputedStyle(b).zoom : '-')]);
+    }
+    if (window === window.top) {
+        window.addEventListener('load', function () { geometry('load'); setTimeout(function () { geometry('+4s'); }, 4000); });
+    }
+
+    // does the document overflow the view (the reason for scrollbars)? Log every change of that, for the first 30 s of a document
+    if (window === window.top) {
+        var lastOverflow = '', started = Date.now();
+        var overflowTimer = setInterval(function () {
+            var d = document.documentElement;
+            var state = (d.scrollWidth > d.clientWidth ? 'H' : '-') + (d.scrollHeight > d.clientHeight ? 'V' : '-');
+            if (state !== lastOverflow) {
+                lastOverflow = state;
+                send('overflow ' + state, ['scroll ' + d.scrollWidth + 'x' + d.scrollHeight, 'client ' + d.clientWidth + 'x' + d.clientHeight, '+' + (Date.now() - started) + ' ms']);
+            }
+            if (Date.now() - started > 30000)
+                clearInterval(overflowTimer);
+        }, 100);
+    }
 
     send('debug.js', ['installed in', location.href]);
 })();

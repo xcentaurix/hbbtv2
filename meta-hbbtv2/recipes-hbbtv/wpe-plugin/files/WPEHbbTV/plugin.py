@@ -15,12 +15,20 @@
 # Files it expects next to this plugin (installed with it):
 #   run_wpe.sh   starts wpe_fb with the right environment
 #   pages/*.html the pages offered in the chooser
+import fcntl
 import os
+import queue
+import re
+import select
+import struct
+import threading
+import time
 
 from enigma import eConsoleAppContainer, eTimer, getDesktop, iServiceInformation
 from Components.ActionMap import ActionMap
 from Plugins.Plugin import PluginDescriptor
 from Screens.ChoiceBox import ChoiceBox
+from Components.Label import Label
 from Screens.MessageBox import MessageBox
 from Screens.Screen import Screen
 
@@ -30,10 +38,97 @@ PAGES = f"{BASE}/pages"
 CTL = "/tmp/wpe_fb.ctl"
 EVT = "/tmp/wpe_fb.evt"
 LOG = "/tmp/wpe_fb.log"
+AIT_FILE = "/tmp/wpe_ait.txt"  # the AIT sections of the service, "<pid> <sid> <hex>" per line, read by run_wpe.sh
+CONF = "/etc/enigma2/wpehbbtv.conf"  # KEY=VALUE lines, read by run_wpe.sh (see there for the defaults)
+PERSIST_DIR = "/media/hdd/.wpe-data"  # HTTP cache, cookies and local storage of the applications (WPE_PERSIST_DIR in the conf overrides)
+REPEAT_KEYS = ["up", "down", "left", "right"]  # keys that have a separate "<name>Repeat" action for the remote's auto-repeat
 
 # Keys forwarded to the page; the names match the "mapto" values in keymap.xml and wpe_fb's key table.
 FORWARDED_KEYS = ["up", "down", "left", "right", "ok", "back", "menu", "red", "green", "yellow", "blue",
 	"play", "pause", "stop", "ff", "rew", "rec"] + [str(n) for n in range(10)]
+
+
+# --- the streams of the tuned service, for the application (Broadcast.getComponents and friends) ----------------------------------
+# enigma2 knows them (PMT): the video PID and type, the audio tracks with language, PID and format, the subtitle tracks. They go to wpe_fb
+# as one line of the "components" control command (see orb_host.h there: V:<pid>:<encoding>:<encrypted>:<aspect>;A:<pid>:<language>:
+# <encoding>:<channels>:<active>:<audio description>;S:<pid>:<language>:<encoding>:<active>:<hearing impaired>).
+
+VIDEO_ENCODINGS = {0: "MPEG-2", 1: "H.264", 2: "MPEG-1", 3: "MPEG-4", 4: "VC-1", 5: "VC-1", 6: "H.265"}  # enigma2's sVideoType
+
+
+def tokenOf(text, default):
+	"""text reduced to what may travel in the components line (no ':' or ';', no spaces)."""
+	return re.sub(r"[^A-Za-z0-9.+-]", "", text or "") or default
+
+
+def audioEncoding(description):
+	d = (description or "").upper().replace(" ", "")
+	if "EAC3" in d or "E-AC3" in d or "DDP" in d:
+		return "E-AC3"
+	if "AC3" in d:
+		return "AC3"
+	if "HE-AAC" in d or "AAC+" in d or "HEAAC" in d:
+		return "HEAAC"
+	if "AAC" in d:
+		return "AAC"
+	if "DTS" in d:
+		return "DTS"
+	if "MP3" in d:
+		return "MP3"
+	if "MPEG" in d:
+		return "MPEG1_L2"
+	if "PCM" in d:
+		return "LPCM"
+	return tokenOf(description, "unknown")
+
+
+def languageOf(code):
+	"""ISO 639-2 code of an audio/subtitle track ('deu', 'eng', ... 'und' when enigma2 has none)."""
+	m = re.match(r"[A-Za-z]{2,3}", (code or "").strip())
+	return m.group(0).lower() if m else "und"
+
+
+def readComponents(service):
+	"""The streams of a running service: (line for the "components" command, {audio pid: track number}, {subtitle pid: enigma2's tuple}, pid of the audio track in use)."""
+	info = service.info()
+	records = []
+	audioTracks = {}
+	subtitleTracks = {}
+	currentAudio = None
+	videoPid = info.getInfo(iServiceInformation.sVideoPID)
+	if videoPid is not None and videoPid > 0:
+		encoding = VIDEO_ENCODINGS.get(info.getInfo(iServiceInformation.sVideoType), "H.264")
+		crypted = 1 if (info.getInfo(iServiceInformation.sIsCrypted) or 0) > 0 else 0
+		aspect = info.getInfo(iServiceInformation.sAspect)
+		records.append("V:%d:%s:%d:%d" % (videoPid, encoding, crypted, aspect if aspect is not None and 0 <= aspect <= 3 else 1))
+	audio = service.audioTracks()
+	if audio:
+		current = audio.getCurrentTrack()
+		for number in range(audio.getNumberOfTracks()):
+			track = audio.getTrackInfo(number)
+			pid = track.getPID()
+			if pid is None or pid <= 0 or pid in audioTracks:
+				continue
+			audioTracks[pid] = number
+			if number == current:
+				currentAudio = pid
+			channels = track.getChannels() if hasattr(track, "getChannels") else 0
+			records.append("A:%d:%s:%s:%d:%d:0" % (pid, languageOf(track.getLanguage()), audioEncoding(track.getDescription()), channels or 0, 1 if number == current else 0))
+	subtitle = service.subtitle()
+	tracks = subtitle.getSubtitleList() if subtitle else None
+	if tracks:
+		try:
+			from Screens.InfoBar import InfoBar
+			selected = InfoBar.instance and InfoBar.instance.selected_subtitle
+		except Exception:
+			selected = None
+		for track in tracks:
+			pid = track[1]
+			if pid is None or pid <= 0 or pid in subtitleTracks:
+				continue
+			subtitleTracks[pid] = track
+			records.append("S:%d:%s:%s:%d:0" % (pid, languageOf(track[4]), {0: "DVB", 1: "TELETEXT"}.get(track[0], "OTHER"), 1 if selected and selected[1] == pid else 0))
+	return ";".join(records), audioTracks, subtitleTracks, currentAudio
 
 
 PLANE = "/proc/stb/vmpeg/0/dst_%s"
@@ -167,17 +262,23 @@ handovers = []  # a handover has to outlive its screen: its timer finishes the j
 
 class WPEScreen(Screen):
 	# skin is set in main() from the real desktop size (same pattern as DVDOverlay)
-	skin = """<screen name="WPEScreen" position="0,0" size="1920,1080" flags="wfNoBorder" backgroundColor="transparent" />"""
+	skin = """<screen name="WPEScreen" position="0,0" size="1920,1080" flags="wfNoBorder" backgroundColor="transparent">
+		<widget name="loading" position="640,495" size="640,90" font="Regular;36" halign="center" valign="center" foregroundColor="#ffffff" backgroundColor="#c0101820" zPosition="10" />
+	</screen>"""
 
-	def __init__(self, session, page, hwvideo=False):
+	def __init__(self, session, page, hwvideo=False, channel=None, ait=None):
 		Screen.__init__(self, session)
 		self.page = page
 		self.hwvideo = hwvideo
+		self.channel = channel  # (onid, tsid, sid, name) of the service the box is tuned to, for an application of a channel
+		self.ait = ait  # the AIT of that service (AitCollection): given to the engine, which starts the autostart application / the one chosen
+		self.aitSent = {}  # section number -> the section wpe_fb has been given
 		self.handover = None
 		self.closing = False
 		self.finished = False
 
 		actions = {name: (lambda name=name: self.sendKey(name)) for name in FORWARDED_KEYS}
+		actions.update({name + "Repeat": (lambda name=name: self.sendKey(name, repeat=True)) for name in REPEAT_KEYS})
 		actions["exit"] = self.stop
 		self["actions"] = ActionMap(["WPEHbbTVActions"], actions, -1)
 
@@ -193,6 +294,23 @@ class WPEScreen(Screen):
 		self.freeTimer = eTimer()
 		self.freeTimer.callback.append(self.decoderFree)
 
+		# starting takes a few seconds (wpe_fb and its web process, then the page): say so until wpe_fb reports the first page ("loaded"),
+		# or after 30 s whatever happens
+		self["loading"] = Label("Loading HbbTV ...")
+		self.loadingTimer = eTimer()
+		self.loadingTimer.callback.append(self.hideLoading)
+
+		# the streams of the service, for the application: sent to wpe_fb whenever they change (the tracks of a channel change with the
+		# programme, and when the application selects one)
+		self.components = ""  # what wpe_fb was last told
+		self.audioTracks = {}  # audio pid -> enigma2's track number
+		self.subtitleTracks = {}  # subtitle pid -> enigma2's subtitle tuple
+		self.defaultAudio = None  # the audio pid in use when the application started: where "restore the default" goes back to
+		self.componentsTimer = eTimer()
+		self.componentsTimer.callback.append(self.pollComponents)
+		self.aitTimer = eTimer()
+		self.aitTimer.callback.append(self.pollAit)
+
 		self.container = eConsoleAppContainer()
 		self.container.appClosed.append(self.appClosed)
 
@@ -207,6 +325,7 @@ class WPEScreen(Screen):
 			self.finish()
 			return
 		env = ""
+		self.loadingTimer.start(30000, True)
 		if self.hwvideo:
 			# Hardware video, but the live service keeps playing (an application runs on top of the live picture) until media
 			# really needs the decoder: wpe_fb then sends "acquire" (pollEvents), and "release" when it is done with it.
@@ -218,6 +337,25 @@ class WPEScreen(Screen):
 				pass
 			self.evtTimer.start(100, False)
 			env = "WPE_HWVIDEO=1 "
+		if self.channel:
+			# the application is started as a broadcast-related application of this service (run_wpe.sh validates it, wpe_fb reads it)
+			env += 'WPE_CHANNEL="%d %d %d %s" ' % self.channel
+			# its streams too, known before the application starts (run_wpe.sh sends them before "app")
+			components = self.readServiceComponents()
+			if components:
+				env += 'WPE_COMPONENTS="%s" ' % components
+			self.componentsTimer.start(1000, False)
+		if self.ait and self.ait.sections and self.channel:
+			# the real AIT: run_wpe.sh gives these sections to the engine (after "service", before the application is asked for); the reader goes
+			# on, and what it finds later (a new version of the table) is passed on by pollAit
+			try:
+				with open(AIT_FILE, "w") as f:
+					f.write(self.ait.text())
+				self.aitSent = dict(self.ait.sections)
+				env += 'WPE_AIT="%s" ' % AIT_FILE
+				self.aitTimer.start(500, False)
+			except OSError as error:
+				print("[WPEHbbTV] cannot write %s: %s" % (AIT_FILE, error))
 		if self.container.execute(f'{env}{RUN} "{self.page}" > {LOG} 2>&1') != 0:
 			self.session.open(MessageBox, "could not start wpe_fb", MessageBox.TYPE_ERROR)
 			self.finish()
@@ -246,9 +384,10 @@ class WPEScreen(Screen):
 			os.close(fd)
 		return True
 
-	def sendKey(self, name):
+	def sendKey(self, name, repeat=False):
 		if not self.closing:
-			self.send(f"key {name}")
+			# an auto-repeat is passed on by wpe_fb at most once per delivered frame (see REPEAT_HOLD_US there)
+			self.send(f"{'keyrepeat' if repeat else 'key'} {name}")
 
 	# --- decoder handover --------------------------------------------------------------------------------------
 
@@ -275,17 +414,87 @@ class WPEScreen(Screen):
 			if event == "acquire" and self.handover and not self.finished:
 				self.handover.acquire()
 				self.freeTimer.start(1200, True)  # give enigma2 a moment to close the decoder before wpe_fb hands it out
+			elif event == "loaded":
+				self.hideLoading()
 			elif event == "release" and self.handover:
 				self.freeTimer.stop()
 				self.handover.release()
+			elif event.startswith("select "):
+				self.selectComponent(event.split())
+
+	# --- the streams of the service --------------------------------------------------------------------------------
+
+	def readServiceComponents(self):
+		"""Read the streams of the service enigma2 is playing (remembering what is needed to select one). Returns the line for wpe_fb, or None
+		while there is no service (during a decoder handover the live service is stopped: what the application was told stays)."""
+		try:
+			service = self.session.nav.getCurrentService()
+			if not service:
+				return None
+			text, self.audioTracks, self.subtitleTracks, current = readComponents(service)
+			if self.defaultAudio is None:
+				self.defaultAudio = current
+			return text
+		except Exception as error:  # enigma2 versions differ in what they offer: never let this get in the way of the application
+			print("[WPEHbbTV] reading the components failed: %s" % error)
+			return None
+
+	def pollAit(self):
+		"""What the AIT reader found since: new or changed sections go to wpe_fb (the engine acts on a changed table)."""
+		if self.closing or self.finished or not self.ait:
+			return
+		for section in self.ait.drain():
+			if self.aitSent.get(section[6]) != section and self.send("ait %d %d %s" % (self.ait.pid, self.ait.channel[2], section.hex())):
+				self.aitSent[section[6]] = section
+
+	def pollComponents(self):
+		if self.closing or self.finished:
+			return
+		text = self.readServiceComponents()
+		if text is not None and text != self.components and self.send("components " + text):
+			self.components = text
+
+	def selectComponent(self, words):
+		"""The application chose an audio track or subtitle ("select audio|subtitle <pid>|default|none"): enigma2 switches, then the new state
+		goes to the application with the next list."""
+		try:
+			if len(words) != 3 or words[1] not in ("audio", "subtitle"):
+				return
+			kind, what = words[1], words[2]
+			service = self.session.nav.getCurrentService()
+			if not service:
+				return
+			self.readServiceComponents()  # the tracks may have changed since the last poll
+			if kind == "audio":
+				audio = service.audioTracks()
+				pid = self.defaultAudio if what == "default" else int(what) if what.isdigit() else None  # "none": enigma2 cannot switch audio off
+				if audio and pid in self.audioTracks:
+					audio.selectTrack(self.audioTracks[pid])
+			else:
+				from Screens.InfoBar import InfoBar
+				if InfoBar.instance:
+					track = self.subtitleTracks.get(int(what)) if what.isdigit() else None  # "default" and "none": subtitles off
+					InfoBar.instance.enableSubtitle(track)
+		except Exception as error:
+			print("[WPEHbbTV] selecting %s failed: %s" % (" ".join(words), error))
+		self.pollComponents()
 
 	def decoderFree(self):
 		if self.handover and self.handover.active and not self.finished:
 			self.send("decoder-free")
 
+	def hideLoading(self):
+		self.loadingTimer.stop()
+		self["loading"].hide()
+
 	def closeEvents(self):
 		self.evtTimer.stop()
+		self.loadingTimer.stop()
 		self.freeTimer.stop()
+		self.componentsTimer.stop()
+		self.aitTimer.stop()
+		if self.ait:
+			self.ait.stop()
 		if self.evtFd is not None:
 			os.close(self.evtFd)
 			self.evtFd = None
@@ -320,15 +529,17 @@ class WPEScreen(Screen):
 			self.container.kill()
 
 
-def pageChosen(session, choice):
+def pageChosen(session, choice, channel=None, ait=None):
 	if choice:
 		size = getDesktop(0).size()
-		WPEScreen.skin = f"""<screen name="WPEScreen" position="0,0" size="{size.width()},{size.height()}" flags="wfNoBorder" backgroundColor="transparent" />"""
+		WPEScreen.skin = f"""<screen name="WPEScreen" position="0,0" size="{size.width()},{size.height()}" flags="wfNoBorder" backgroundColor="transparent">
+			<widget name="loading" position="{(size.width() - 640) // 2},{(size.height() - 90) // 2}" size="640,90" font="Regular;36" halign="center" valign="center" foregroundColor="#ffffff" backgroundColor="#c0101820" zPosition="10" />
+		</screen>"""
 		# pages that play video on the hardware plane (hw_*.html) and real applications (URLs, which may play video whenever
 		# they like) take the decoder from the live service; the other test pages leave the live picture alone
 		page = choice[1]
-		hwvideo = page.startswith(("http://", "https://")) or os.path.basename(page).startswith("hw_")
-		session.open(WPEScreen, page, hwvideo)
+		hwvideo = page.startswith(("http://", "https://", "ait:")) or os.path.basename(page).startswith("hw_")
+		session.open(WPEScreen, page, hwvideo, channel, ait)
 
 
 def main(session, **kwargs):
@@ -350,16 +561,405 @@ def currentServiceAppUrl(session):
 	return (info and info.getInfoString(iServiceInformation.sHBBTVUrl)) or ""
 
 
+def currentChannel(session):
+	"""(original network id, transport stream id, service id, name) of the service enigma2 is tuned to, or None."""
+	service = session.nav.getCurrentService()
+	info = service and service.info()
+	if not info:
+		return None
+	ids = [info.getInfo(what) for what in (iServiceInformation.sONID, iServiceInformation.sTSID, iServiceInformation.sSID)]
+	if any(value is None or value < 0 for value in ids):
+		return None
+	name = re.sub(r"[^\w .+&()-]", "", info.getName() or "").strip()  # goes into a shell command and a line of a FIFO
+	return (ids[0], ids[1], ids[2], name or "channel")
+
+
+# --- the real AIT ---------------------------------------------------------------------------------------------------------------
+# A HbbTV channel signals its applications in the AIT (application information table), on a PID that the PMT names with an
+# application_signalling_descriptor. enigma2 only keeps the URL of the autostart application; the engine (ORB) wants the whole table - which
+# applications there are and with what control code (AUTOSTART, PRESENT, KILL ...) - to start the autostart application, to resolve
+# dvb://current.ait/<org>.<app> links and to kill what the channel does not signal any more. So the plugin reads PMT and AIT itself from
+# the demux (a section filter of its own next to enigma2's; tools/box/ait_probe.py shows what it finds) and hands the raw sections to wpe_fb.
+
+DMX_SET_FILTER = 0x403C6F2B  # _IOW('o', 43, struct dmx_sct_filter_params): pid, filter[16], mask[16], mode[16], 2 bytes padding, timeout, flags = 60 bytes
+DMX_SET_BUFFER_SIZE = 0x6F2D  # _IO('o', 45): enigma2 sets a buffer before every section filter; this driver delivers nothing without
+DMX_CHECK_CRC, DMX_IMMEDIATE_START = 1, 4
+AIT_CONTROL_CODES = {1: "AUTOSTART", 2: "PRESENT", 3: "DESTROY", 4: "KILL", 5: "PREFETCH", 6: "REMOTE", 7: "UNBOUND"}
+AIT_TIMEOUT = 6.0  # seconds to wait for the PMT and the AIT of a service before giving up
+
+
+def descriptorsOf(data):
+	i = 0
+	while i + 2 <= len(data):
+		yield data[i], data[i + 2:i + 2 + data[i + 1]]
+		i += 2 + data[i + 1]
+
+
+def aitPidOfPmt(section):
+	"""The PID of the AIT that a PMT section signals (an elementary stream with an application_signalling_descriptor), or None."""
+	i = 12 + (((section[10] & 0x0F) << 8) | section[11])  # after the program info
+	end = len(section) - 4  # the CRC
+	while i + 5 <= end:
+		pid = ((section[i + 1] & 0x1F) << 8) | section[i + 2]
+		infoLength = ((section[i + 3] & 0x0F) << 8) | section[i + 4]
+		if any(tag == 0x6F for tag, _ in descriptorsOf(section[i + 5:i + 5 + infoLength])):
+			return pid
+		i += 5 + infoLength
+	return None
+
+
+def parseAit(section):
+	"""The applications one AIT section signals: [{"org", "app", "control" (AIT_CONTROL_CODES key), "names": [(language, name)], "http": [url base], "path"}]."""
+	apps = []
+	i = 10 + (((section[8] & 0x0F) << 8) | section[9])  # after the common descriptors
+	end = i + 2 + (((section[i] & 0x0F) << 8) | section[i + 1])
+	i += 2
+	while i + 9 <= end:
+		org, app, control = struct.unpack(">IHB", section[i:i + 7])
+		length = ((section[i + 7] & 0x0F) << 8) | section[i + 8]
+		info = {"org": org, "app": app, "control": control, "names": [], "http": [], "path": ""}
+		for tag, data in descriptorsOf(section[i + 9:i + 9 + length]):
+			if tag == 0x01:  # application_name_descriptor
+				j = 0
+				while j + 4 <= len(data):
+					info["names"].append((data[j:j + 3].decode("latin1"), data[j + 4:j + 4 + data[j + 3]].decode("utf-8", "replace")))
+					j += 4 + data[j + 3]
+			elif tag == 0x02 and len(data) > 3 and (data[0] << 8 | data[1]) == 3:  # transport_protocol_descriptor, protocol 3 = HTTP
+				info["http"].append(data[4:4 + data[3]].decode("latin1"))
+			elif tag == 0x15:  # simple_application_location_descriptor
+				info["path"] = data.decode("latin1")
+		apps.append(info)
+		i += 9 + length
+	return apps
+
+
+def locatorOf(app):
+	"""The part after dvb://current.ait/ that names an application of the AIT: organisation id and application id in HEXADECIMAL."""
+	return "%x.%x" % (app["org"], app["app"])
+
+
+def appName(app):
+	names = dict(app["names"])
+	return names.get("deu") or names.get("eng") or next(iter(names.values()), "%d.%d" % (app["org"], app["app"]))
+
+
+class AitReader(threading.Thread):
+	"""Reads the PMT of a service and then its AIT from the demux, keeping on reading (a new version of a section is reported again).
+	events (queue): ("section", pid, bytes) for each new or changed AIT section, ("none",) when the service signals no AIT, ("error", text)."""
+
+	def __init__(self, demux, sid, pmtPid):
+		threading.Thread.__init__(self, name="WPEHbbTV-AIT")
+		self.daemon = True
+		self.demux, self.sid, self.pmtPid = demux, sid, pmtPid
+		self.events = queue.Queue()
+		self.stopped = threading.Event()
+
+	def openFilter(self, pid, tableId, extension=None):
+		fd = os.open("/dev/dvb/adapter0/demux%d" % self.demux, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
+		try:
+			fcntl.ioctl(fd, DMX_SET_BUFFER_SIZE, 8192 * 8)
+			filt, mask = bytearray(16), bytearray(16)
+			filt[0], mask[0] = tableId, 0xFF
+			if extension is not None:  # table_id_extension (the program number of a PMT)
+				filt[1], filt[2], mask[1], mask[2] = extension >> 8, extension & 0xFF, 0xFF, 0xFF
+			fcntl.ioctl(fd, DMX_SET_FILTER, struct.pack("<H16s16s16s2xII", pid, bytes(filt), bytes(mask), bytes(16), 0, DMX_CHECK_CRC | DMX_IMMEDIATE_START))
+		except Exception:
+			os.close(fd)
+			raise
+		return fd
+
+	def sections(self, fd, seconds):
+		"""Sections arriving on fd for at most `seconds` (None = until stopped)."""
+		end = None if seconds is None else time.time() + seconds
+		while not self.stopped.is_set() and (end is None or time.time() < end):
+			if select.select([fd], [], [], 0.5)[0]:
+				try:
+					yield os.read(fd, 4096)
+				except BlockingIOError:
+					pass
+
+	def run(self):
+		try:
+			aitPid = None
+			fd = self.openFilter(self.pmtPid, 0x02, self.sid)
+			try:
+				for section in self.sections(fd, AIT_TIMEOUT):
+					aitPid = aitPidOfPmt(section)
+					break
+			finally:
+				os.close(fd)
+			if self.stopped.is_set():
+				return
+			if aitPid is None:
+				self.events.put(("none",))
+				return
+			latest = {}
+			fd = self.openFilter(aitPid, 0x74)
+			try:
+				for section in self.sections(fd, None):
+					if latest.get(section[6]) != section:  # section_number: new, or a new version of it
+						latest[section[6]] = section
+						self.events.put(("section", aitPid, section))
+			finally:
+				os.close(fd)
+		except Exception as error:
+			self.events.put(("error", str(error)))
+
+	def stop(self):
+		self.stopped.set()
+
+
+def startAitReader(session):
+	"""(reader, (onid, tsid, sid, name)) for the service enigma2 is playing, or None when it cannot be read (no service, no PMT PID)."""
+	channel = currentChannel(session)
+	service = session.nav.getCurrentService()
+	info = service and service.info()
+	if not channel or not info:
+		return None
+	pmtPid = info.getInfo(iServiceInformation.sPMTPID)
+	if pmtPid is None or pmtPid <= 0:
+		return None
+	try:
+		demux = int(info.getInfoString(iServiceInformation.sLiveStreamDemuxId))
+	except (AttributeError, ValueError, TypeError):
+		demux = 0
+	reader = AitReader(max(demux, 0), channel[2], pmtPid)
+	reader.start()
+	return reader, channel
+
+
+class AitCollection:
+	"""The sections of the AIT of a service as they arrive (drain() reads the reader's events)."""
+
+	def __init__(self, reader, channel):
+		self.reader, self.channel = reader, channel
+		self.pid = None
+		self.sections = {}  # section_number -> bytes
+		self.failed = False  # no AIT signalled, or it could not be read
+
+	def drain(self):
+		"""Take over what the reader found since the last call: the new or changed sections."""
+		changed = []
+		while True:
+			try:
+				event = self.reader.events.get_nowait()
+			except queue.Empty:
+				return changed
+			if event[0] == "section":
+				self.pid = event[1]
+				self.sections[event[2][6]] = event[2]
+				changed.append(event[2])
+			else:
+				self.failed = True
+
+	def complete(self):
+		if not self.sections:
+			return False
+		last = next(iter(self.sections.values()))[7]  # last_section_number
+		return all(number in self.sections for number in range(last + 1))
+
+	def apps(self):
+		found = []
+		for number in sorted(self.sections):
+			found.extend(parseAit(self.sections[number]))
+		return found
+
+	def text(self):
+		"""The sections as the lines "<pid> <sid> <hex>" that run_wpe.sh feeds to wpe_fb."""
+		return "".join("%d %d %s\n" % (self.pid, self.channel[2], self.sections[n].hex()) for n in sorted(self.sections))
+
+	def stop(self):
+		self.reader.stop()
+
+
+class ChannelAppLauncher:
+	"""The "channel app" of the tuned service with its real AIT: read the AIT (a moment, in the background), let the user pick when several
+	applications are signalled, start it. Without a readable AIT the URL enigma2 keeps for the autostart application is used, as before."""
+
+	def __init__(self, session):
+		self.session = session
+		self.ait = None
+		self.waited = 0.0
+		self.box = None
+		self.timer = eTimer()
+		self.timer.callback.append(self.poll)
+
+	def start(self):
+		try:
+			started = startAitReader(self.session)
+		except Exception as error:
+			print("[WPEHbbTV] cannot read the AIT: %s" % error)
+			started = None
+		if not started:
+			self.fallback()
+			return
+		self.ait = AitCollection(*started)
+		try:
+			self.box = self.session.open(MessageBox, "Reading the HbbTV application information ...", MessageBox.TYPE_INFO, enable_input=False)
+		except Exception:
+			self.box = None
+		self.timer.start(200, False)
+
+	def closeBox(self):
+		if self.box:
+			try:
+				self.box.close()
+			except Exception:
+				pass
+			self.box = None
+
+	def poll(self):
+		self.ait.drain()
+		self.waited += 0.2
+		if self.ait.complete() or self.ait.failed or self.waited >= AIT_TIMEOUT + 1:
+			self.timer.stop()
+			self.closeBox()
+			self.chosen()
+
+	def usableApps(self):
+		return [app for app in self.ait.apps() if app["control"] in (1, 2) and app["http"]]  # AUTOSTART or PRESENT, over HTTP (not a broadcast carousel)
+
+	def chosen(self):
+		apps = self.usableApps() if self.ait.sections else []
+		if not apps:
+			self.ait.stop()
+			self.fallback()
+			return
+		autostart = [app for app in apps if app["control"] == 1]
+		if len(apps) == 1 or (autostart and len(apps) == len(autostart)):
+			self.launch(apps[0])  # only one to choose
+			return
+		entries = [("%s%s" % (appName(app), "  (autostart)" if app["control"] == 1 else ""), app) for app in sorted(apps, key=lambda a: a["control"] != 1)]
+		self.session.openWithCallback(self.picked, ChoiceBox, title="HbbTV applications of %s  (EXIT closes)" % self.ait.channel[3], list=entries)
+
+	def picked(self, choice):
+		if choice:
+			self.launch(choice[1])
+		else:
+			self.ait.stop()
+
+	def launch(self, app):
+		# the autostart application starts by itself (the engine runs it when the AIT is complete); another one by its locator
+		spec = "" if app["control"] == 1 else locatorOf(app)
+		pageChosen(self.session, (appName(app), "ait:" + spec), self.ait.channel, self.ait)
+
+	def fallback(self):
+		url = currentServiceAppUrl(self.session)
+		if not url.startswith(("http://", "https://")):
+			self.session.open(MessageBox, "The current channel does not signal an HbbTV application (no AIT).", MessageBox.TYPE_INFO, timeout=5)
+			return
+		pageChosen(self.session, (url, url), currentChannel(self.session))
+
+
+launchers = []  # a launcher has to stay alive while it waits for the AIT
+
+
 def channelApp(session, **kwargs):
-	url = currentServiceAppUrl(session)
-	if not url.startswith(("http://", "https://")):
-		session.open(MessageBox, "The current channel does not signal an HbbTV application (no AIT autostart URL).", MessageBox.TYPE_INFO, timeout=5)
-		return
-	pageChosen(session, (url, url))
+	launcher = ChannelAppLauncher(session)
+	launchers[:] = [launcher]
+	launcher.start()
+
+
+
+# --- settings ------------------------------------------------------------------------------------------------
+# (key in the conf file, title, [(value, text), ...], default). The first value listed is NOT necessarily the default.
+SETTINGS = [
+	("WPE_HIDPI", "Render quality", [("1.5", "sharp (1.5x)"), ("1.25", "balanced (1.25x)"), ("1.0", "fast (1.0x)")], "1.5"),
+	("WPE_SIZE", "Screen size (smaller if the TV crops the edges)", [("100", "100% (all of the screen)"), ("95", "95%"), ("90", "90%"), ("85", "85%")], "100"),
+	("WPE_FAST_ANIM", "Shorter animations", [("0", "off"), ("1", "on")], "0"),
+	("WPE_PERSIST", "Keep cache, cookies and storage", [("1", "yes"), ("0", "no")], "1"),
+	("WPE_DEBUG", "Debug log (slower)", [("0", "off"), ("1", "on")], "0"),
+	("WPE_LIMIT_REPEAT", "Limit key repeat (a feel, not a speed-up)", [("0", "off"), ("1", "on")], "0"),
+]
+
+
+def readSettings():
+	values = {key: default for key, _, _, default in SETTINGS}
+	try:
+		with open(CONF) as f:
+			for line in f:
+				key, _, value = line.strip().partition("=")
+				if key in values:
+					values[key] = value
+	except OSError:
+		pass
+	return values
+
+
+def persistDir():
+	try:
+		with open(CONF) as f:
+			for line in f:
+				key, _, value = line.strip().partition("=")
+				if key == "WPE_PERSIST_DIR" and value.startswith("/") and len(value) > 1:
+					return value
+	except OSError:
+		pass
+	return PERSIST_DIR
+
+
+def writeSettings(values):
+	# keys this plugin does not know (e.g. WPE_PERSIST_DIR) are kept as they are
+	extra = []
+	try:
+		with open(CONF) as f:
+			extra = [line.rstrip("\n") for line in f if line.partition("=")[0] not in values and line.strip()]
+	except OSError:
+		pass
+	try:
+		with open(CONF, "w") as f:
+			f.write("".join(f"{key}={value}\n" for key, value in values.items()))
+			f.write("".join(line + "\n" for line in extra))
+		return True
+	except OSError:
+		return False
+
+
+def settingsMenu(session, **kwargs):
+	values = readSettings()
+	choices = []
+	for key, title, options, default in SETTINGS:
+		text = dict(options).get(values[key], values[key])
+		choices.append((f"{title}: {text}", key))
+	choices.append(("Delete stored cache, cookies and storage", "clear"))
+
+	def chosen(choice):
+		if not choice:
+			return
+		key = choice[1]
+		if key == "clear":
+			session.openWithCallback(lambda yes: clearStoredData(session) if yes else settingsMenu(session), MessageBox,
+				f"Delete the stored cache, cookies and local storage of the HbbTV applications ({persistDir()})?", MessageBox.TYPE_YESNO)
+			return
+		for k, title, options, default in SETTINGS:
+			if k == key:  # the next value, round and round
+				order = [value for value, _ in options]
+				current = values[k] if values[k] in order else default
+				values[k] = order[(order.index(current) + 1) % len(order)]
+		if not writeSettings(values):
+			session.open(MessageBox, f"Could not write {CONF}", MessageBox.TYPE_ERROR)
+			return
+		settingsMenu(session)  # show the new state; EXIT leaves
+
+	session.openWithCallback(chosen, ChoiceBox, title="WPE HbbTV settings  (OK changes a value, applied at the next start)", list=choices)
+
+
+def clearStoredData(session):
+	import shutil
+	directory = persistDir()
+	try:
+		shutil.rmtree(directory)
+		session.open(MessageBox, "Stored data deleted.", MessageBox.TYPE_INFO, timeout=4)
+	except FileNotFoundError:
+		session.open(MessageBox, "There is nothing stored.", MessageBox.TYPE_INFO, timeout=4)
+	except OSError as e:
+		session.open(MessageBox, f"Could not delete {directory}: {e}", MessageBox.TYPE_ERROR)
 
 
 def Plugins(**kwargs):
 	return [PluginDescriptor(name="WPE HbbTV Test", description="WPE WebKit HbbTV 2.0 experiment: test pages on top of enigma2",
 		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=main),
 		PluginDescriptor(name="WPE HbbTV: channel app", description="Run the HbbTV application of the current channel (ORB engine, mock platform)",
-		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=channelApp)]
+		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=channelApp),
+		PluginDescriptor(name="WPE HbbTV: settings", description="Render quality, animations, stored data",
+		where=PluginDescriptor.WHERE_EXTENSIONSMENU, fnc=settingsMenu)]

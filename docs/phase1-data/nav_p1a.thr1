@@ -1,0 +1,27 @@
+WPEWebProcess 2380
+EventDispatcher 0
+rruptDispatcher 0
+ReceiveQueue 55
+ReceiveQueue 52
+talloc 0
+vc5 4
+gmain 0
+pool-spawner 0
+gdbus 0
+eadedCompositor 3449
+eadedCompositor 0
+eadedCompositor 0
+WPEWebProcess 0
+WPEWebProcess 0
+Core: Scrolling 0
+SkiaCPUWorker 27
+CryptoQueue 0
+worker0 4
+HeapHelper 127
+CryptoQueue 0
+ImageDecoder 6
+WebCore: Worker 1
+rss wpe_fb.p1 VmRSS:	   46880 kB
+rss WPEWebProcess VmRSS:	  150312 kB
+rss WPENetworkProce VmRSS:	   42616 kB
+mem total=1021672 free=52008 cached=585520

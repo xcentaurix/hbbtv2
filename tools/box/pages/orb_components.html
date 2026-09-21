@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ORB components test</title>
+</head>
+<body style="margin:0;background:#123;color:#fff;font:22px sans-serif">
+<!-- Test page for the components of the broadcast channel (tools/box/comp_check.sh): lists what video/broadcast.getComponents() returns, reports
+     ComponentChanged / SelectedComponentChanged, and selects the second audio track. Everything goes to the console as "COMP ..." lines. -->
+<object id="vb" type="video/broadcast" style="position:absolute;left:0;top:0;width:1px;height:1px"></object>
+<pre id="out" style="margin:20px"></pre>
+<script>
+var kinds = { 0: 'video', 1: 'audio', 2: 'subtitle' };
+function log(text) {
+    console.log('COMP ' + text);
+    document.getElementById('out').textContent += text + '\n';
+}
+var vb = document.getElementById('vb');
+function dump(tag) {
+    try {
+        var list = [], lines = [];
+        for (var t = 0; t <= 2; t++) { var part = vb.getComponents(t); for (var k = 0; k < part.length; k++) list.push(part[k]); } // by type: no argument = all in the spec, -1 would mean type -1
+        for (var i = 0; i < list.length; i++) {
+            var c = list[i];
+            lines.push(kinds[c.type] + ' pid=' + c.pid + ' enc=' + c.encoding + (c.language ? ' lang=' + c.language : ''));
+        }
+        var active = [];
+        for (var t2 = 0; t2 <= 2; t2++) { var a = vb.getCurrentActiveComponents(t2); for (var j = 0; j < a.length; j++) active.push(kinds[a[j].type] + ' ' + a[j].pid); }
+        log(tag + ': ' + list.length + ' components: ' + lines.join(' | ') + '  ACTIVE: ' + active.join(', '));
+        return list;
+    } catch (e) {
+        log(tag + ': getComponents threw ' + e);
+        return [];
+    }
+}
+vb.addEventListener('ComponentChanged', function (e) { log('ComponentChanged type=' + e.componentType); dump('  now'); });
+vb.addEventListener('SelectedComponentChanged', function (e) { log('SelectedComponentChanged type=' + e.componentType); dump('  now'); });
+vb.addEventListener('PlayStateChange', function (e) {
+    log('PlayStateChange state=' + e.state);
+    if (e.state === 2) {
+        var list = dump('initial'), audio = [];
+        for (var i = 0; i < list.length; i++)
+            if (list[i].type === 1)
+                audio.push(list[i]);
+        if (audio.length > 1)
+            setTimeout(function () {
+                log('selectComponent audio pid=' + audio[1].pid);
+                try { vb.selectComponent(audio[1]); } catch (e) { log('selectComponent threw ' + e); }
+            }, 1500);
+    }
+});
+try { vb.bindToCurrentChannel(); log('bindToCurrentChannel called'); } catch (e) { log('bindToCurrentChannel threw ' + e); }
+</script>
+</body>
+</html>

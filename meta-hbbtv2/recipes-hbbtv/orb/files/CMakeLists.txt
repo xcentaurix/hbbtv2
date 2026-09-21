@@ -59,7 +59,7 @@ set(APPMGR_SOURCES
     ${ORB_APPMGR}/utils.cpp
     ${ORB_APPMGR}/xml_parser.cpp)
 # application_manager/log.h only defines DBGLOG/ERRLOG for Android, but the sources use them
-set_source_files_properties(${APPMGR_SOURCES} PROPERTIES COMPILE_OPTIONS "SHELL:-include ${ORB_COMPAT}")
+set_source_files_properties(${APPMGR_SOURCES} PROPERTIES COMPILE_OPTIONS "-include;${ORB_COMPAT}") # (no "SHELL:" prefix for source files)
 
 add_library(ORBCore SHARED ${CORE_SOURCES} ${APPMGR_SOURCES})
 target_compile_definitions(ORBCore PRIVATE ${ORB_DEFINITIONS})

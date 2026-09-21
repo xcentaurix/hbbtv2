@@ -21,15 +21,16 @@ The pieces of the layer (meta-hbbtv2/)
   conf/layer.conf                               the layer (depends on core, openembedded-layer, webkit)
   recipes-browser/wpewebkit/wpewebkit_%.bbappend
         appends to meta-webkit's wpewebkit_2.54.0.bb: PACKAGECONFIG (no GBM/DRM/Wayland: WPE Platform API, SHM, vendor EGL/GLES2,
-        media, mediasource), and patches 0001-0012 (files/), see below
-  recipes-browser/wpewebkit/files/0001..0012    WebKit patches, applied on top of the tarball and the two patches of the base recipe:
+        media, mediasource), and patches 0001-0013 (files/), see below
+  recipes-browser/wpewebkit/files/0001..0013    WebKit patches, applied on top of the tarball and the two patches of the base recipe:
         0001-0002  build without GBM/DRM                      0007       application/vnd.hbbtv.xhtml+xml is XHTML
         0003-0006  vendor EGL (Broadcom V3D): default EGL     0008-0012  <video> on the hardware video plane (dvbvideosink hole
                    display, no GL fence, SHM read-back only              punch), decoder position/seeking, decoder hand-over
                    of the damaged regions                                with the embedder, view scale, dry run for tests
+        0013       frame read-back through an ION pixmap surface (4-9x faster than glReadPixels)
   recipes-graphics/libepoxy/libepoxy_%.bbappend  libepoxy for the vendor EGL (no X11, BROADCOM_PLATFORM)
   recipes-hbbtv/orb/orb_git.bb                  ORB: fetches OpenRedButtonProject/orb at a pinned commit (SRCREV) and applies
-        orb/files/0001..0003 (ORB_PLATFORM_LIB, two fixes in the JavaScript polyfill). files/CMakeLists.txt builds
+        orb/files/0001..0004 (ORB_PLATFORM_LIB, two fixes in the JavaScript polyfill, 0004: an application can be started as a broadcast-related one of a given service without an AIT). files/CMakeLists.txt builds
         libORBCore, libORBHost, libORBPlatformImpl.so (ORB's platform mock + orb_platform_wpe.cpp) and libORBWebExt.so
         (orb_ext.c); the polyfill (hbbtv.js, iframe.js, dash.all.min.js, playerpage.html) is made by ORB's own makefile,
         which only concatenates files (no node needed).
@@ -68,22 +69,43 @@ The pieces of the layer (meta-hbbtv2/)
 4. Results
 ----------
   tmp/deploy/ipk/cortexa15hf-neon-vfpv4/
-      libwpewebkit-2.0-1_2.54.0-r0_cortexa15hf-neon-vfpv4.ipk        (+ -dev, -dbg, web-inspector-plugin, not needed on the box)
-      orb_1.0+git<...>-r0_cortexa15hf-neon-vfpv4.ipk                 (+ orb-dev with orb_host.h and the .so symlinks, orb-dbg)
-      enigma2-plugin-extensions-wpehbbtv_1.0-r0_cortexa15hf-neon-vfpv4.ipk
-  The libraries WebKit needs that the image does not have (libepoxy0, libsoup, libicu*78, libharfbuzz*, woff2, libxkbcommon0,
-  libwebp, libxslt, ...) are in the same directory: serve it as an opkg feed (or copy those ipk files too) so that opkg can
-  resolve the dependencies of libwpewebkit-2.0-1. The box must run the image that was built from this tree (libwpewebkit needs
-  the same glibc, "libc6 (>= 2.43+git...)").
+      libwpewebkit-2.0-1_2.54.0-r0_cortexa15hf-neon-vfpv4.ipk        22 MB (+ -dev, -dbg, web-inspector-plugin, not needed on the box)
+      orb_1.0+git385+8945a130+8945a1301c-r3_cortexa15hf-neon-vfpv4.ipk   538 KB (+ orb-dev with orb_host.h and the .so symlinks, orb-dbg)
+      enigma2-plugin-extensions-wpehbbtv_1.0-r8_cortexa15hf-neon-vfpv4.ipk   48 KB (r1 = phase 1, r2 = channel apps, r3 = no scrollbars, r4 = real components, r5 = ZDF banner first again, r6-r8 = real AIT, Loading message, hex locators; r0 was the first build)
+  Contents (checked): the plugin ipk installs /usr/bin/wpe_fb and .../Plugins/Extensions/WPEHbbTV/{plugin.py, keymap.xml,
+  run_wpe.sh, fonts.conf, pages/}, has a postinst and a postrm, and depends on libwpewebkit-2.0-1 and orb. The orb ipk installs
+  /usr/lib/libORBCore.so.1, libORBHost.so.1 and /usr/lib/orb/{hbbtv.js, iframe.js, dash.all.min.js, playerpage.html, debug.js,
+  ext/libORBWebExt.so, wpe/libORBPlatformImpl.so}; it depends on libcurl4, libxml2, libuuid1 and libwpewebkit-2.0-1.
+  What the box lacks (resolved on 2026-09-20 against its opkg status with tools/build/ipk_missing_deps.py; list and sizes in
+  docs/feed-dependencies-2026-09-20.txt): 24 more ipks, 18.4 MB - libepoxy0, libsoup, libicudata78/libicui18n78/libicuuc78,
+  libharfbuzz0, libharfbuzz-icu0, libfontconfig1, libxkbcommon0, woff2, brotli, libnghttp2-14, libwpewebkit-2.0-web-inspector-plugin,
+  libcairo2 with directfb, libpixman-1-0, libxrender1, libxcb-render0 (pulled in by libharfbuzz0), and six GStreamer pieces
+  (plugins-base-gio/-volume, plugins-good-audiofx/-deinterlace/-interleave, libgstfft-1.0-0). Everything else is already installed.
+  They come from the same build directory. In the Cockpit feed (rel/Cockpit-Feed) all 27 ipks - the three above and these 24 - are
+  in packages/armhf/ (feed line: src/gz cockpit-armhf https://xcentaurix.github.io/Cockpit-Feed/packages/armhf). The box must run
+  the image that was built from this tree: libwpewebkit needs the same glibc, "libc6 (>= 2.43+git...)" (the box satisfied it, and
+  no core library would have to be upgraded). Re-run the script after any change of the packages' dependencies.
 
 5. Install on the box
 ---------------------
-  Not tested with these ipks yet - the box currently runs the hand-installed private deployment (see 8). Expected procedure:
+  Done once, on 2026-09-20 (DM900, opkg 0.10.0): the 27 ipks (the three above without the -dev/-dbg packages, plus the 24) were copied
+  to /media/hdd/wpe-ipk, the hand-installed plugin directory was backed up and removed, and "opkg install ./*.ipk" (dry run first:
+  nothing existing upgraded or removed; one extra small package, libx11-locale, came from the box's own feed) installed everything
+  without errors; then "init 4; init 3" restarted the GUI. Checked afterwards: all libraries resolve, the helper processes run from
+  /usr/libexec/wpe-webkit-2.0, a headless run of the installed wpe_fb loaded the ZDF application, took RED and rendered the tile
+  strip, and the new Enigma2 log shows no error (plugin.pyc was created = the plugin was imported). NOT checked: the plugin's menus
+  and an on-screen run of the packaged plugin on the TV. Rollback: opkg remove enigma2-plugin-extensions-wpehbbtv orb
+  libwpewebkit-2.0-1 (and the libraries), copy /media/hdd/wpe-test/plugin/WPEHbbTV.pre-opkg back to the plugin directory. The
+  procedure:
   remove the hand-installed plugin first (the ipk installs to the same directory,
   /usr/lib/enigma2/python/Plugins/Extensions/WPEHbbTV), then
       opkg install enigma2-plugin-extensions-wpehbbtv     (with the feed configured; pulls orb and libwpewebkit-2.0-1)
   and restart enigma2 (GUI). The plugin appears in the extensions menu as "WPE HbbTV: channel app" (runs the HbbTV application
-  of the current channel) and "WPE HbbTV Test" (test pages).
+  of the current channel), "WPE HbbTV Test" (test pages) and "WPE HbbTV: settings" (render quality 1.5 / 1.25 / 1.0, shorter
+  animations, keep cache/cookies/storage, debug log, limit key repeat, delete stored data). The settings are KEY=VALUE lines in
+  /etc/enigma2/wpehbbtv.conf (WPE_HIDPI, WPE_FAST_ANIM, WPE_PERSIST, WPE_PERSIST_DIR, WPE_DEBUG, WPE_LIMIT_REPEAT; the defaults are
+  in run_wpe.sh); the applications' cache, cookies and local storage live in /media/hdd/.wpe-data. docs/phase1-results.txt has the
+  measurements behind the defaults.
   Where things go:  /usr/bin/wpe_fb   /usr/lib/orb/ (polyfill, ext/libORBWebExt.so, wpe/libORBPlatformImpl.so)
                     /usr/lib/enigma2/python/Plugins/Extensions/WPEHbbTV/ (plugin.py, run_wpe.sh, fonts.conf, pages/)
   run_wpe.sh can be pointed elsewhere with WPE_FB, WPE_ORB_DIR and WPE_MEDIA_CACHE (progressive media is buffered on
@@ -95,7 +117,7 @@ The pieces of the layer (meta-hbbtv2/)
   (cmake.bbclass: do_configure[cleandirs] = ${B}; externalsrc only spares directories inside the source tree). So for work on
   the WebKit patches build from a persistent, patched tree, exactly like the other packages in local.conf:
 
-    a) make the tree (tarball + the 2 patches of meta-webkit + our 12, in this order):
+    a) make the tree (tarball + the 2 patches of meta-webkit + our 13, in this order):
          tar -xf sources/wpewebkit-2.54.0.tar.xz -C /home/alpha/wpe-src
          cd /home/alpha/wpe-src/wpewebkit-2.54.0
          for p in <meta-webkit>/recipes-browser/wpewebkit/files/000[12]-*.patch \
@@ -108,7 +130,7 @@ The pieces of the layer (meta-hbbtv2/)
        patch file in meta-hbbtv2/recipes-browser/wpewebkit/files/, in the same numbering (tools/history/patchNN.sh show how).
 
   The rule: do NOT change anything that reaches wpewebkit's do_configure while such a build is in progress - SRC_URI (that is why
-  the bbappend adds patches 0003-0012 only when EXTERNALSRC is not set), local.conf variables for the recipe, its dependencies.
+  the bbappend adds patches 0003-0013 only when EXTERNALSRC is not set), local.conf variables for the recipe, its dependencies.
   After any such edit check before building:
          bitbake-diffsigs -t wpewebkit do_configure          (names the variable that changed; nothing = safe)
          cd /home/alpha/wpe-src/build && ninja -n -d explain all | head      (must not say "command line changed"/"deps ... missing"
@@ -137,5 +159,119 @@ The pieces of the layer (meta-hbbtv2/)
   Verified: patches 0001-0012 apply in order to the pristine tarball and give the tree the box binaries were built from;
   the wpewebkit bbappend parses in dev mode (4 patches in SRC_URI, as before) and from the tarball (all 14); WebKit itself
   built and ran on the box in its earlier, hand-deployed form.
-  Not verified yet at the time of writing: a complete "bitbake wpewebkit orb enigma2-plugin-extensions-wpehbbtv" run (started,
-  WebKit compile in progress), the content of the orb and plugin ipks, and installing the ipks on the box.
+  A complete "bitbake -k wpewebkit orb enigma2-plugin-extensions-wpehbbtv" run finished without errors (WebKit in dev mode from
+  the patched tree, then orb and the plugin). The three ipks were opened and their contents and dependencies checked (section 4).
+  The polyfill (hbbtv.js) and debug.js in the orb ipk - built by bitbake from the pinned ORB commit plus orb/files/0001-0003 - are
+  byte-identical (same MD5) to the ones patched by hand and tested on the box: the ORB patch set is reproducible. The WebKit
+  library in the ipk carries the Dreambox hole-punch code.
+  Not verified: a WebKit build from the tarball with the 12 patches through the recipe alone (no EXTERNALSRC; the patch series was
+  proven to give the same source tree, but the 2 h compile was not repeated that way), and installing the ipks on the box.
+
+10. Applications of a channel (ARD, ...) - 2026-09-20
+-----------------------------------------------------
+  The plugin's "WPE HbbTV: channel app" reads the service enigma2 is tuned to (original network id, transport stream id, service id, name)
+  and gives it to run_wpe.sh (WPE_CHANNEL), which sends "channel <onid> <tsid> <sid> <name>" to wpe_fb before "app <url>". The application
+  is then started as a BROADCAST-RELATED application of that service (ORB patch 0004, orb_host_launch_broadcast): ORB answers its Broadcast.*
+  requests (before: SecurityError, so the ARD start application drew nothing). The platform layer (orb_platform_wpe.cpp) answers
+  getCurrentChannel / getChannelList with the tuned channel, reports it as "presenting" (ChannelStatusChanged) when the application takes
+  over the broadcast presentation or selects the current channel, and returns a video and an audio component for it. Verified with ARD
+  (headless probe, tools/box/app_probe.sh, and a run of the installed plugin): the start banner appears for ~9 s, RED opens the real
+  start bar with live programme data. Not done yet: the components have no PIDs/languages (not read from the stream), the channel list
+  is only the current channel, other channels cannot be tuned by an application (setChannel to another service is refused), no real
+  AIT (autostart control codes, key sets and several applications per channel come from it), programme data from enigma2's EPG.
+  Test one application: sh app_probe.sh <label> <url> <seconds> [keys...]  (PROBE_REF=1:0:19:283D:3FB:1:C00000:0:0:0: PROBE_NAME="Das Erste HD"
+  to use another service than the tuned one; DUMP_AT="2 4 6 9" for screenshots at those seconds).
+
+  Scrollbars and the ZDF banner (plugin r3, 2026-09-20):
+  - ZDF's main application overflows the 1280x720 view for one to two seconds while it starts (document 1288x886..1368) until it sets
+    overflow:hidden, so WebKit drew scrollbars. wpe_fb now installs a user style sheet that hides them (--scrollbars keeps them);
+    measured with wpe_fb.p3 (edge pixels lit at t=3-4 s) against the fixed build (none).
+  - (REVERTED in plugin r5 on the user's request - every channel starts with its own start application, ZDF too.) The AIT autostart URL of the ZDF channels (http://hbbtv.zdf.de/zdfstart/...) is only a banner; plugin r3/r4 started the media library
+    (http://new-hbbtv.zdf.de, with ?mode=tivi|heute|3sat as the banner's LinkManager would add it) at once (plugin.py, mainAppUrl).
+  - Why the Fire TV shows more content: not the layout. Both ZDF's main application and ARD's start application lay themselves out on a
+    fixed 1280x720 canvas (a 1920x1080 view leaves them in the top left corner, checked with app_probe.sh PROBE_VIEW="--size 1920x1080
+    --hidpi 1.0"); the Fire TV runs the native ZDF/ARD apps, not their HbbTV applications.
+
+11. Fast frame read-back (WebKit patch 0013, plugin/webkit r1) - 2026-09-21
+----------------------------------------------------------------------------
+  glReadPixels on the DM900's vendor GLES runs at ~14 MB/s, so every large repaint cost 0.4-0.8 s at 1920x1080. Patch 0013
+  (AcceleratedSurface.cpp, IonPixmapReadback) blits the bounding box of a frame's damage rectangles with the GPU into a pixmap surface on
+  ION (BMEM) memory (eglCreatePlatformPixmapSurfaceEXT + struct dmegl_pixmap_handle) and copies the rectangles out with an NEON loop that
+  swaps red and blue. Measured on ZDF at 1920x1080 (docs/spike-s1-results.txt has the background): full frame 850 -> 90 ms, typical partial
+  frame 190-240 -> 50 ms, twice as many frames in the same time. WEBKIT_SHM_READBACK_PIXMAP: unset/1 = on, 0 = off (Skia readPixels as
+  before), verify = on and every rectangle compared with Skia's read (logs "N px differ from Skia"; 0 in all tests). Any failure switches
+  it off for the process. WEBKIT_SHM_READBACK_LOG=1 prints the per-frame times.
+  Dev-build pitfalls found on the way:
+   - "ninja -n -d explain" with the system ninja (1.11) reports "command line changed" for EVERY target: the log hashes of ninja 1.13 (the
+     recipe's native ninja) differ. Use recipe-sysroot-native/usr/bin/ninja (of the wpewebkit work dir) for the check and for private builds.
+   - The version bump for opkg is PKGR = "r1" in the bbappend (not PR: a PR test with "bb.sh -n" showed do_configure would run, and a re-run
+     deletes /home/alpha/wpe-src/build). BUT the dry run is NOT a reliable safety check: on 2026-09-21 "bb.sh -n wpewebkit" listed no
+     do_configure for the PKGR state, yet the real "bitbake wpewebkit orb ..." run re-ran do_configure, wiped the build directory and started a
+     full rebuild (~1.5 h). What the signature files showed (python: bb.siggen.compare_sigfiles(old, new) on the two newest
+     tmp/stamps/.../wpewebkit/2.54.0.do_configure.sigdata.* / do_unpack.sigdata.*; do not use bitbake-diffsigs while a build runs: it hangs on
+     the busy server): the last configured state (2026-09-20 14:50) had patches 0003-0012 in SRC_URI, the current parse (bbappend guard
+     "if EXTERNALSRC: return") has none, so do_unpack -> do_configure hashes differed. I could not establish when that difference arose.
+     Rule: before a real bitbake run compare the newest sigdata files as above; if do_configure would differ, expect the full rebuild.
+   - Private test of a new library: strip it (arm-oe-linux-gnueabi-strip --strip-unneeded), put it into /media/hdd/wpe-test/lib as
+     libWPEWebKit-2.0.so.1 (keep the old one as .pre-...), run tools/box/app_probe.sh with PROBE_VIEW="--hidpi 1.5 --persist <dir>".
+  Installed on the DM900 on 2026-09-21 (box idle, no GUI restart needed: wpe_fb is a separate process that loads the library when it starts):
+      opkg install --no-install-recommends ./libwpewebkit-2.0-1_2.54.0-r1_*.ipk ./libwpewebkit-2.0-web-inspector-plugin_2.54.0-r1_*.ipk
+  WITHOUT --no-install-recommends opkg would also install the package's Recommends (gstreamer1.0-plugins-{base,good,bad}-meta, fonts,
+  ca-certificates): 199 packages from the box's feed. Verified headless with the installed stack (/usr/bin/wpe_fb, /usr/lib, script
+  /media/hdd/wpe-test/pkg_check.sh): pixmap mode verify = 70 frames, 0 px differ; on: partial 50 ms / full 106 ms; off: 182 / 842 ms.
+
+12. The streams of the channel: audio, video, subtitles (orb r2, plugin r4) - 2026-09-21
+----------------------------------------------------------------------------------------
+  What an application sees through video/broadcast.getComponents() used to be made up (one video, one audio, no PIDs). Now enigma2's real
+  streams are handed over:
+    plugin.py readComponents(service)      reads them (info.getInfo sVideoPID/sVideoType/sIsCrypted/sAspect, service.audioTracks(): PID,
+                                           language, format, channels, current track; service.subtitle().getSubtitleList(); the selected
+                                           subtitle from InfoBar.instance) and makes ONE line of the form
+                                           V:<pid>:<enc>:<crypted>:<aspect>;A:<pid>:<lang>:<enc>:<channels>:<active>:<ad>;S:<pid>:<lang>:<enc>:<active>:<hi>
+    before the start:                      env WPE_COMPONENTS -> run_wpe.sh (validated: only A-Za-z0-9:;.+-) -> ctl "components ..." before "app"
+    afterwards:                            the plugin polls once a second and sends the line again when it changed (a new programme, a
+                                           selection); ctl "components ..." -> orb_host_set_components() -> orb_platform_wpe.cpp
+                                           Broadcast_GetComponents (ids video_<pid>/audio_<pid>/subtitle_<pid>, componentTag -1: enigma2 does
+                                           not expose the PMT stream identifier) and OnComponentChanged / OnSelectedComponentChanged
+    the application selects (selectComponent / unselectComponent -> Broadcast.overrideComponentSelection / restoreComponentSelection):
+                                           platform -> orb_host_platform_select_component -> wpe_fb writes "select audio|subtitle <pid>|default|
+                                           none" to the event FIFO (/tmp/wpe_fb.evt, exists with --hwvideo-lazy) -> the plugin's pollEvents ->
+                                           audio.selectTrack(n) / InfoBar.instance.enableSubtitle(tuple); "default" audio = the track that was in
+                                           use when the application started, subtitles default/none = off. The plugin then sends the new list
+                                           (the "active" flags), which is what makes the application see the change.
+  Limits: no audio description flag (enigma2 does not say), audio cannot be switched off, video cannot be switched; while the live service is
+  stopped for the decoder handover the last list stays. Without any list the old made-up video + audio are still answered (an embedder run by hand).
+  Tests: tools/box/test_components.py (stub enigma2 objects, runs anywhere with python3), tools/box/comp_check.sh + pages/orb_components.html
+  (headless on the box with the installed stack; the script plays the plugin) - result 2026-09-21: the page sees the 5 components with real PIDs,
+  selectComponent(audio 5103) arrives as "select audio 5103", the new list gives SelectedComponentChanged / ComponentChanged and the active
+  audio is 5103 afterwards. Not tested yet: the plugin against the real enigma2 (needs a GUI restart after installing plugin r4).
+  Note for test pages: getComponents(-1) filters for type -1 in the polyfill; no argument (or the type) is what returns components.
+
+13. The real AIT (orb r3, plugin r8) - 2026-09-21
+--------------------------------------------------
+  Before: the plugin started the one URL enigma2 keeps for the AUTOSTART application (sHBBTVUrl) as a made-up broadcast-related application (ORB patch
+  0004); the engine had no AIT, so dvb://current.ait/... links of an application ("No AIT, early out") did not work and nothing else the channel
+  signals was known. Now the plugin reads the AIT itself and the ENGINE runs the lifecycle:
+    reading:   AitReader (a thread in plugin.py) opens a section filter on /dev/dvb/adapter0/demux<N> (N = sLiveStreamDemuxId of the playing service,
+               a second filter next to enigma2's), waits for the PMT of the service (sid + sPMTPID), takes the PID of the ES with an
+               application_signalling_descriptor (0x6F), and follows the AIT on it (table 0x74), reporting every new or changed section.
+               The demux needs DMX_SET_BUFFER_SIZE (0x6F2D) before the filter, and struct dmx_sct_filter_params has its 2 padding bytes BEFORE
+               timeout (60 bytes: pid, filter[16], mask[16], mode[16], pad, timeout, flags) - both cost me an afternoon; tools/box/ait_probe.py
+               prints what a service signals, ait_capture.py writes the sections to a file (tools/box/testdata/ait_zdfhd.txt = ZDF HD, 10 applications).
+    choosing:  "WPE HbbTV: channel app" shows "Reading the HbbTV application information ..." while the AIT is read (a second or two); with one usable
+               application (AUTOSTART or PRESENT, transport HTTP) it starts, with several a list is offered (autostart first). No readable AIT: the old
+               sHBBTVUrl route.
+    starting:  page argument "ait:" (the AUTOSTART application) or "ait:<org hex>.<app hex>"; run_wpe.sh sends "channel", "components", "service <onid> <tsid>
+               <sid>", every AIT section as "ait <pid> <sid> <hex>" (file /tmp/wpe_ait.txt, WPE_AIT), and for another application
+               "app dvb://current.ait/<org>.<app>". wpe_fb -> orb_host_service_selected / orb_host_ait_section / orb_host_broadcast_stopped -> the engine's
+               OnChannelStatusChanged(CONNECTING) / OnAitSectionReceived / OnBroadcastStopped: ORB starts the autostart application (isBroadcast=1),
+               resolves locators, kills what the AIT no longer signals. THE LOCATOR IS HEXADECIMAL (org 17 / app 3 = dvb://current.ait/11.3).
+    later:     the reader goes on; a new version of a section is sent as another "ait" line while the application runs.
+  Also: wpe_fb's control line buffer is 8 KB now (was 512: an AIT section as hex is ~2 KB); a "Loading HbbTV ..." message in the plugin's screen until wpe_fb
+  reports "loaded" (first page finished, event FIFO) or 30 s.
+  Tests: tools/box/test_ait.py (parser, PMT, collection; runs anywhere), tools/box/ait_check.sh (installed stack, headless, real ZDF AIT): result 2026-09-21:
+  "OnPerformAutostart Start autostart app" -> RunApp org 17 app 1 http://hbbtv.zdf.de/zdfstart/index.php isBroadcast=1; dvb://current.ait/11.3 -> org 17 app 3
+  http://new-hbbtv.zdf.de/index.html "-> ok"; ait-stop accepted.
+  NOT done (and why): AUTOSTART on zapping. A permanent background overlay would need wpe_fb to blend only the pixels the application really draws (it
+  writes every pixel of the frame, transparent ones too, and repaints after every enigma2 page flip = enigma2's own OSD would disappear while it runs)
+  and keys to be passed on to enigma2 unless the application's key set claims them (a global key hook + the key set from the engine).

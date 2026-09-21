@@ -1,0 +1,52 @@
+WPEWebProcess 987
+EventDispatcher 0
+rruptDispatcher 0
+ReceiveQueue 18
+ReceiveQueue 10
+talloc 0
+vc5 1
+gmain 0
+pool-spawner 0
+gdbus 0
+eadedCompositor 1812
+eadedCompositor 0
+eadedCompositor 0
+WPEWebProcess 0
+WPEWebProcess 0
+Core: Scrolling 0
+SkiaCPUWorker 11
+CryptoQueue 0
+ImageDecoder 0
+worker0 3
+WPEWebProcess 470
+EventDispatcher 0
+rruptDispatcher 0
+ReceiveQueue 18
+ReceiveQueue 6
+talloc 0
+vc5 7
+gmain 0
+pool-spawner 0
+gdbus 0
+eadedCompositor 3315
+eadedCompositor 0
+eadedCompositor 0
+WPEWebProcess 0
+WPEWebProcess 0
+Core: Scrolling 0
+SkiaCPUWorker 48
+CryptoQueue 0
+worker0 1
+WPEWebProcess 12
+EventDispatcher 0
+rruptDispatcher 0
+ReceiveQueue 0
+talloc 0
+vc5 0
+gmain 0
+pool-spawner 0
+gdbus 0
+rss wpe_fb.p1 VmRSS:	   47348 kB
+rss WPEWebProcess VmRSS:	   81248 kB
+rss WPENetworkProce VmRSS:	   32676 kB
+mem total=1021672 free=50104 cached=612728

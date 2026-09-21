@@ -24,11 +24,20 @@ SRC_URI = " \
 
 S = "${UNPACKDIR}"
 
+# r1: phase 1 (settings menu, persistent session, animation switch, repeat limiting switch); r2: applications of a channel start as broadcast-related
+# applications of it (the channel comes from enigma2); r3: no scrollbars (a TV shows none), the ZDF start banner is skipped (its media library
+# application starts at once); r4: the streams of the channel (video, audio tracks, subtitles) go to the application, and its choice of an audio
+# track or subtitle to enigma2; r5: the ZDF start banner is opened again (the r3 shortcut to the main application is gone: every channel starts with
+# its own start application); r6: the real AIT (read from the demux, given to the engine; a choice among the applications it signals). A new revision each
+# time, so that opkg upgrades. r7: a "Loading HbbTV ..." message until the first page has loaded. r8: dvb://current.ait locators in hexadecimal.
+PR = "r8"
+
 # wpewebkit: the browser engine and its headers; orb: the engine, orb_host.h and the libraries wpe_fb is linked against
 DEPENDS = "wpewebkit orb glib-2.0 libsoup"
 # wpe_fb loads the web process extension and the platform library of ORB by path (dlopen), which the shared library dependencies do not show.
 # No "enigma2" here: it is always there on a box, and bitbake would build everything a package runtime-depends on (a whole enigma2 build).
-RDEPENDS:${PN} = "orb"
+# orb r3 or later: orb_host_service_selected / orb_host_ait_section (r2: orb_host_set_components / orb_host_set_component_handler)
+RDEPENDS:${PN} = "orb (>= 1.0+git385+8945a130+8945a1301c-r3)"
 
 inherit pkgconfig
 

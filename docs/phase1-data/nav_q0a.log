@@ -1,0 +1,1008 @@
+fine-grained damage: UnifyDamagedRegions turned off
+platform in use: display WPEDisplayFb (ours: WPEDisplayFb, primary: WPEDisplayFb), view WPEViewFb
+hidpi: view 1280x720 at scale 1.50 renders 1920x1080
+control channel ready: /tmp/nav_bench.ctl
+ORB [TokenManager.cpp]::[TokenManager]::[149]
+ORB [ORBPlatformEventHandlerImpl.cpp]::[ORBPlatformEventHandlerImpl]::[33]
+ORB [ORBEngine.cpp]::[ORBEngine]::[133]
+ORB [ORBEngine.cpp]::[Start]::[159]
+ORB [ORBPlatformLoader.cpp]::[Load]::[55]
+ORB [ORBPlatformLoader.cpp]::[Load]::[71] dlopen success
+ORB [ORBPlatformLoader.cpp]::[Load]::[83] dlsym success
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[ORBPlatformMockImpl]::[73]
+ORB [ORBPlatformLoader.cpp]::[Load]::[87] Create ORBPlatform success
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Platform_Initialise]::[87]
+ORB [SessionCallbackImpl.cpp]::[HideApplication]::[158]
+orb: application hidden
+ORB [ORBEngine.cpp]::[GetUserAgentString]::[377]
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Configuration_GetUserAgentString]::[993]
+[orb_host] engine started, bridge on /tmp/orb_bridge.13887.sock, UA: HbbTV/1.6.1 (; OBS; WPE; v1.0.0-alpha; ; OBS;)
+ORB [ORBEngine.cpp]::[GetUserAgentString]::[377]
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Configuration_GetUserAgentString]::[993]
+orb: user agent: Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15 HbbTV/1.6.1 (; OBS; WPE; v1.0.0-alpha; ; OBS;)
+T 114891433880 mark run label=q0a hidpi=1.5 debug=0 fast_anim=0 app=http://hbbtv.zdf.de/zdfstart/index.php
+T 114891631356 mark cpu ui=17 web=7 net=11 rx=3927669447 load=1.05 up=114891.60 uiu=11 uis=6  uimain=17
+T 114891643575 mark uith 13887:wpe_fb.trace:11/6 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:0/0
+ORB [ORBEngine.cpp]::[NotifyApplicationPageChanged]::[364] appId=65535 url=about:blank
+load-changed: STARTED
+load-changed: COMMITTED
+ORB [ORBEngine.cpp]::[CreateToken]::[301] uri=about:blank appId=65535
+ORB [ORBEngine.cpp]::[CreateToken]::[305] No app is currently running
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{},"method":"Drm.getSupportedDRMSystemIDs","params":{}}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[247] Request is not valid
+load-changed: FINISHED
+T 114892447243 mark phase launch
+ctl: launch application http://hbbtv.zdf.de/zdfstart/index.php
+[INFO] application_manager.cpp:CreateApplication:129: CreateApplication
+[INFO] application_manager.cpp:CreateApplication:175: Create for ENTRY_PAGE_OR_XML_AIT_LOCATOR (url=http://hbbtv.zdf.de/zdfstart/index.php)
+ORB [SessionCallbackImpl.cpp]::[GetXmlAitContents]::[173] url=http://hbbtv.zdf.de/zdfstart/index.php
+ORB [HttpDownloader.cpp]::[Download]::[110] url=http://hbbtv.zdf.de/zdfstart/index.php
+ORB [HttpDownloader.cpp]::[Download]::[141] content type of downloaded object is: text/html; charset=utf-8
+[INFO] application_manager.cpp:CreateApplication:184: Locator resource is ENTRY PAGE
+[ORB/AppMgr] RunApp:1124  orgId=0, appId=0, isBroadcast=0, entryUrl=http://hbbtv.zdf.de/zdfstart/index.php, scheme=urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1, isHidden=0
+[INFO] application_manager.cpp:RunApp:1175: RunApp: Loading application - id=1, entryUrl=http://hbbtv.zdf.de/zdfstart/index.php, graphicsConstraints=0
+ORB [SessionCallbackImpl.cpp]::[LoadApplication]::[127] HbbTV Version: 203
+
+ORB [SessionCallbackImpl.cpp]::[LoadApplication]::[107] app_id=1 url=http://hbbtv.zdf.de/zdfstart/index.php
+ORB [SessionCallbackImpl.cpp]::[EncodeUrl]::[39] http://hbbtv.zdf.de/zdfstart/index.php
+[INFO] application_manager.cpp:RunApp:1182: RunApp: Showing application
+ORB [SessionCallbackImpl.cpp]::[ShowApplication]::[147]
+orb: application shown
+[INFO] application_manager.cpp:RunApp:1186: RunApp: App started successfully - id=1, orgId=0, appId=0, isRunning=1
+[orb_host] CreateApplication(http://hbbtv.zdf.de/zdfstart/index.php) -> ok
+orb: loading application page http://hbbtv.zdf.de/zdfstart/index.php
+ORB [ORBEngine.cpp]::[NotifyApplicationPageChanged]::[364] appId=1 url=http://hbbtv.zdf.de/zdfstart/index.php
+load-changed: STARTED
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 701.6 ms
+T 114892657856 frame 1 rects=1 px=2073600 blit_ms=38.20
+T 114892667701 ack
+ORB [ORBEngine.cpp]::[CreateToken]::[301] uri=http://hbbtv.zdf.de/zdfstart/index.php appId=1
+load-changed: COMMITTED
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"},"signature":"YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw=="},"method":"Drm.getSupportedDRMSystemIDs","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Drm method=getSupportedDRMSystemIDs
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Drm_GetSupportedDrmSystemIds]::[1274]
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[]}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"},"signature":"YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw=="},"method":"Broadcast.getCurrentChannel","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Broadcast method=getCurrentChannel
+ORB [BroadcastRequestHandler.cpp]::[IsRequestAllowed]::[580] payload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"error":"SecurityError"}
+T 114892846497 mark cpu ui=25 web=107 net=15 rx=3927768467 load=1.05 up=114892.81 uiu=17 uis=10  uimain=23
+T 114892860461 mark uith 13887:wpe_fb.trace:15/9 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:1/0 13943:VBlankMonitor:0/0 13944:wpe_fb.trace:0/0
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"},"signature":"YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw=="},"method":"Manager.showApplication","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Manager method=showApplication
+ORB [SessionCallbackImpl.cpp]::[ShowApplication]::[147]
+orb: application shown
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"},"signature":"YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw=="},"method":"Manager.setKeyValue","params":{"value":15}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Manager method=setKeyValue
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Platform_SetCurrentKeySetMask]::[136] keySetMask=15
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":15}
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 1185.5 ms
+T 114894056211 frame 2 rects=1 px=2073600 blit_ms=35.93
+T 114894067182 ack
+T 114894182723 mark cpu ui=32 web=261 net= rx=3928805659 load=1.12 up=114894.11 uiu=21 uis=13  uimain=27
+T 114894212038 mark uith 13887:wpe_fb.trace:17/10 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:2/1 13943:VBlankMonitor:0/0 13944:wpe_fb.trace:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 963.8 ms
+T 114895031719 frame 3 rects=1 px=2073600 blit_ms=6.97
+T 114895032396 ack
+T 114895351963 mark cpu ui=37 web=440 net=36 rx=3928899615 load=1.12 up=114895.32 uiu=22 uis=15  uimain=28
+T 114895360324 mark uith 13887:wpe_fb.trace:18/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:2/2 13943:VBlankMonitor:0/0 13944:wpe_fb.trace:0/0
+T 114896469085 mark cpu ui=39 web=542 net=36 rx=3928979650 load=1.12 up=114896.44 uiu=23 uis=16  uimain=29
+T 114896479054 mark uith 13887:wpe_fb.trace:18/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:3/3 13943:VBlankMonitor:1/1 13944:wpe_fb.trace:0/0
+T 114897597770 mark cpu ui=41 web=646 net=36 rx=3929065028 load=1.12 up=114897.57 uiu=25 uis=17  uimain=29
+T 114897611956 mark uith 13887:wpe_fb.trace:18/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:4/3 13943:VBlankMonitor:1/1 13944:wpe_fb.trace:0/0
+T 114898743681 mark cpu ui=46 web= net=37 rx=3929183980 load=1.11 up=114898.72 uiu=28 uis=18  uimain=31
+T 114898755073 mark uith 13887:wpe_fb.trace:20/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:5/4 13943:VBlankMonitor:2/1 13944:wpe_fb.trace:0/0
+T 114899658536 mark idle after=7s frames=3
+T 114899853909 mark cpu ui=47 web=854 net=37 rx=3929269115 load=1.11 up=114899.82 uiu=29 uis=18  uimain=31
+T 114899867096 mark uith 13887:wpe_fb.trace:20/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:5/4 13943:VBlankMonitor:2/1 13944:wpe_fb.trace:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 746.0 ms
+T 114900566512 frame 4 rects=1 px=2073600 blit_ms=6.15
+T 114900566945 ack
+T 114901187480 mark cpu ui=50 web=1017 net=39 rx=3929351856 load=1.11 up=114901.12 uiu=31 uis=19  uimain=33
+T 114901220964 mark uith 13887:wpe_fb.trace:22/11 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:5/5 13943:VBlankMonitor:2/1 13944:wpe_fb.trace:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 775.7 ms
+T 114901351331 frame 5 rects=1 px=2073600 blit_ms=4.95
+T 114901351791 ack
+load-changed: FINISHED
+T 114901671247 mark phase red
+T 114901693273 mark send red 114901.69
+T 114901693328 key-in red
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=403 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=403, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=403 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=403, action=0
+orb key red (403): consumed by the application
+T 114901703652 key-done red
+ctl: key red -> sent
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"},"signature":"YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw=="},"method":"Manager.setKeyValue","params":{"value":31}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=YTY3NDc2Yzk2YjBkMGQyZWYzZDBhMmVlODNjNDgzNzFkYzE5MWFlMTA1M2Y4ZDA0MjJhYzFlZWJkNjIzNjE5Mw==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://hbbtv.zdf.de","uri":"http://hbbtv.zdf.de/zdfstart/index.php"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Manager method=setKeyValue
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Platform_SetCurrentKeySetMask]::[136] keySetMask=31
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":31}
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 797.0 ms
+T 114902194718 frame 6 rects=1 px=2073600 blit_ms=6.75
+T 114902195250 ack
+T 114902550122 mark cpu ui=60 web=1162 net=68 rx=3929458913 load=1.11 up=114902.48 uiu=40 uis=22  uimain=40
+T 114902583670 mark uith 13887:wpe_fb.trace:28/12 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:7/6 13943:VBlankMonitor:2/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 962.1 ms
+T 114903177210 frame 7 rects=1 px=2073600 blit_ms=4.71
+T 114903177691 ack
+T 114903728107 mark cpu ui=64 web=1307 net=89 rx=3929735837 load=1.35 up=114903.69 uiu=42 uis=23  uimain=42
+T 114903744266 mark uith 13887:wpe_fb.trace:30/12 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:7/6 13943:VBlankMonitor:2/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 768.5 ms
+T 114904012374 frame 8 rects=1 px=2073600 blit_ms=11.49
+T 114904012796 ack
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 785.7 ms
+T 114904883913 frame 9 rects=4 px=409401 blit_ms=1.66
+T 114904884513 ack
+T 114904903701 mark cpu ui=68 web= net= rx=3929914487 load=1.35 up=114904.86 uiu=45 uis=23  uimain=45
+T 114904927645 mark uith 13887:wpe_fb.trace:32/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 701.7 ms
+T 114905624619 frame 10 rects=1 px=2073600 blit_ms=5.21
+T 114905624972 ack
+T 114906017770 mark cpu ui=70 web=1495 net=91 rx=3929997122 load=1.35 up=114906.00 uiu=47 uis=23  uimain=46
+T 114906027937 mark uith 13887:wpe_fb.trace:33/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114907116245 mark cpu ui=70 web=1497 net=92 rx=3930076559 load=1.35 up=114907.09 uiu=47 uis=23  uimain=46
+T 114907128953 mark uith 13887:wpe_fb.trace:33/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114908214613 mark cpu ui=71 web=1497 net=92 rx=3930154761 load=1.24 up=114908.19 uiu=47 uis=24  uimain=46
+T 114908222864 mark uith 13887:wpe_fb.trace:34/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114909319476 mark cpu ui=72 web=1498 net=92 rx=3930229495 load=1.24 up=114909.29 uiu=48 uis=24  uimain=47
+T 114909328841 mark uith 13887:wpe_fb.trace:34/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114909895174 mark idle after=8s frames=5
+T 114910418088 mark cpu ui=72 web=1504 net=92 rx=3930307339 load=1.24 up=114910.40 uiu=48 uis=24  uimain=47
+T 114910428341 mark uith 13887:wpe_fb.trace:34/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114911522181 mark cpu ui=73 web=1505 net=92 rx=3930381552 load=1.24 up=114911.50 uiu=49 uis=24  uimain=48
+T 114911531368 mark uith 13887:wpe_fb.trace:35/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:8/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114912199183 mark phase steps
+T 114912199590 mark step right
+T 114912205578 mark send right 114912.20
+T 114912205899 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114912206345 key-done right
+ctl: key right -> sent
+T 114912683842 mark cpu ui=75 web=1539 net=93 rx=3930451260 load=1.24 up=114912.63 uiu=51 uis=24  uimain=49
+T 114912700460 mark uith 13887:wpe_fb.trace:37/13 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:9/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 787.6 ms
+T 114913077530 frame 11 rects=2 px=197901 blit_ms=0.77
+T 114913077875 ack
+[shm-readback] partial: 8 rect(s), 203628 px (9.8% of the frame), 78.5 ms
+T 114913168523 frame 12 rects=2 px=198458 blit_ms=0.98
+T 114913168977 ack
+[shm-readback] partial: 8 rect(s), 203157 px (9.8% of the frame), 74.2 ms
+T 114913249619 frame 13 rects=2 px=195622 blit_ms=0.76
+T 114913249958 ack
+T 114913717386 mark step right
+T 114913730118 mark send right 114913.72
+T 114913730165 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114913730641 key-done right
+ctl: key right -> sent
+T 114913836105 mark cpu ui=75 web= net=93 rx=3930524075 load=1.30 up=114913.80 uiu=52 uis=25  uimain=51
+T 114913852251 mark uith 13887:wpe_fb.trace:37/14 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:9/6 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] partial: 12 rect(s), 293217 px (14.1% of the frame), 171.3 ms
+T 114913951995 frame 14 rects=2 px=193747 blit_ms=0.94
+T 114913952592 ack
+[shm-readback] partial: 10 rect(s), 199234 px (9.6% of the frame), 80.2 ms
+T 114914062346 frame 15 rects=2 px=196601 blit_ms=0.87
+T 114914062685 ack
+[shm-readback] partial: 10 rect(s), 205639 px (9.9% of the frame), 79.9 ms
+T 114914148896 frame 16 rects=2 px=203053 blit_ms=1.00
+T 114914149268 ack
+T 114915001452 mark cpu ui=78 web=1662 net=93 rx=3930594405 load=1.30 up=114914.97 uiu=53 uis=25  uimain=52
+T 114915018162 mark uith 13887:wpe_fb.trace:38/14 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:9/7 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+T 114915251622 mark step right
+T 114915270183 mark send right 114915.26
+T 114915270232 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114915270702 key-done right
+ctl: key right -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 782.9 ms
+T 114915380271 frame 17 rects=1 px=2073600 blit_ms=6.24
+T 114915380826 ack
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 769.6 ms
+T 114916169068 frame 18 rects=1 px=470475 blit_ms=1.42
+T 114916169548 ack
+T 114916173288 mark cpu ui=81 web=1767 net=93 rx=3930670493 load=1.30 up=114916.14 uiu=55 uis=26  uimain=54
+T 114916186568 mark uith 13887:wpe_fb.trace:40/14 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:9/7 13943:VBlankMonitor:3/1 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 183.6 ms
+T 114916431854 frame 19 rects=1 px=470475 blit_ms=1.24
+T 114916432592 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 155.8 ms
+T 114916597715 frame 20 rects=1 px=470475 blit_ms=1.07
+T 114916601233 ack
+T 114916795166 mark step right
+T 114916803221 mark send right 114916.80
+T 114916803271 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114916805068 key-done right
+ctl: key right -> sent
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 164.4 ms
+T 114917037422 frame 21 rects=1 px=470475 blit_ms=1.11
+T 114917038596 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 188.8 ms
+T 114917238778 frame 22 rects=1 px=470475 blit_ms=1.57
+T 114917240176 ack
+T 114917364832 mark cpu ui=83 web=1852 net=95 rx=3930851166 load=1.30 up=114917.32 uiu=57 uis=27  uimain=57
+T 114917380989 mark uith 13887:wpe_fb.trace:42/15 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:10/7 13943:VBlankMonitor:3/2 13944:wpe_fb.trace:0/0 14200:pool-0:0/0 14201:gdbus:0/0
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 221.9 ms
+T 114917472366 frame 23 rects=1 px=470475 blit_ms=1.92
+T 114917472832 ack
+T 114918322251 mark step right
+T 114918334370 mark send right 114918.33
+T 114918334559 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114918340634 key-done right
+ctl: key right -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 726.2 ms
+T 114918500841 frame 24 rects=1 px=2073600 blit_ms=5.87
+T 114918501672 ack
+T 114918613854 mark cpu ui=86 web=1940 net=95 rx=3930936975 load=1.43 up=114918.57 uiu=60 uis=27  uimain=59
+T 114918643787 mark uith 13887:wpe_fb.trace:44/15 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:10/7 13943:VBlankMonitor:3/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 751.9 ms
+T 114919264878 frame 25 rects=1 px=470475 blit_ms=1.38
+T 114919265275 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 179.8 ms
+T 114919463792 frame 26 rects=1 px=470475 blit_ms=1.53
+T 114919464251 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 162.2 ms
+T 114919645496 frame 27 rects=1 px=470475 blit_ms=1.35
+T 114919645845 ack
+T 114919744058 mark cpu ui=90 web=2048 net=95 rx=3931017929 load=1.43 up=114919.72 uiu=62 uis=28  uimain=61
+T 114919756180 mark uith 13887:wpe_fb.trace:46/15 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:10/7 13943:VBlankMonitor:3/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114919873802 mark step right
+T 114919884884 mark send right 114919.88
+T 114919884929 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114919885416 key-done right
+ctl: key right -> sent
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 184.8 ms
+T 114920135196 frame 28 rects=1 px=470475 blit_ms=1.36
+T 114920135617 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 186.6 ms
+T 114920334183 frame 29 rects=1 px=470475 blit_ms=1.73
+T 114920336505 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 162.8 ms
+T 114920511059 frame 30 rects=1 px=470475 blit_ms=1.41
+T 114920511972 ack
+T 114920850248 mark cpu ui=92 web=2107 net=96 rx=3931092283 load=1.43 up=114920.82 uiu=64 uis=28  uimain=62
+T 114920860925 mark uith 13887:wpe_fb.trace:47/15 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:10/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114921393387 mark step down
+T 114921401173 mark send down 114921.39
+T 114921401214 key-in down
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=0
+orb key down (40): consumed by the application
+T 114921405813 key-done down
+ctl: key down -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 715.0 ms
+T 114921605381 frame 31 rects=1 px=2073600 blit_ms=5.11
+T 114921606034 ack
+T 114922002302 mark cpu ui=95 web=2203 net=96 rx=3931166030 load=1.43 up=114921.96 uiu=66 uis=29  uimain=65
+T 114922019394 mark uith 13887:wpe_fb.trace:49/16 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 756.9 ms
+T 114922395957 frame 32 rects=3 px=212717 blit_ms=0.93
+T 114922396449 ack
+[shm-readback] partial: 8 rect(s), 110873 px (5.3% of the frame), 50.3 ms
+T 114922451176 frame 33 rects=1 px=101844 blit_ms=0.69
+T 114922451576 ack
+T 114922931418 mark step down
+T 114922948344 mark send down 114922.94
+T 114922948401 key-in down
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=0
+orb key down (40): consumed by the application
+T 114922949610 key-done down
+ctl: key down -> sent
+T 114923169747 mark cpu ui=97 web=2264 net=96 rx=3931243962 load=1.48 up=114923.13 uiu=68 uis=29  uimain=66
+T 114923184267 mark uith 13887:wpe_fb.trace:50/16 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 765.1 ms
+T 114923728127 frame 34 rects=1 px=2073600 blit_ms=4.90
+T 114923728495 ack
+T 114924282305 mark cpu ui=98 web=2324 net=96 rx=3931320138 load=1.48 up=114924.26 uiu=69 uis=30  uimain=67
+T 114924291989 mark uith 13887:wpe_fb.trace:51/16 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114924460261 mark step down
+T 114924465747 mark send down 114924.46
+T 114924465792 key-in down
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=40 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=40, action=0
+orb key down (40): consumed by the application
+T 114924466944 key-done down
+ctl: key down -> sent
+T 114925384215 mark cpu ui=99 web=2325 net=97 rx=3931400250 load=1.48 up=114925.36 uiu=69 uis=30  uimain=68
+T 114925393267 mark uith 13887:wpe_fb.trace:52/16 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114925982211 mark step right
+T 114925984347 mark send right 114925.98
+T 114925984387 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114925984849 key-done right
+ctl: key right -> sent
+T 114926479674 mark cpu ui=100 web=2331 net=97 rx=3931479974 load=1.48 up=114926.45 uiu=70 uis=30  uimain=68
+T 114926491449 mark uith 13887:wpe_fb.trace:52/16 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114927496113 mark step right
+T 114927503166 mark send right 114927.50
+T 114927503217 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114927504979 key-done right
+ctl: key right -> sent
+T 114927586168 mark cpu ui=101 web=2335 net=97 rx=3931571806 load=1.48 up=114927.57 uiu=71 uis=30  uimain=70
+T 114927595364 mark uith 13887:wpe_fb.trace:53/17 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114928690973 mark cpu ui=101 web=2336 net=97 rx=3931642321 load=1.36 up=114928.67 uiu=71 uis=30  uimain=70
+T 114928700151 mark uith 13887:wpe_fb.trace:53/17 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114929014477 mark step up
+T 114929019434 mark send up 114929.01
+T 114929020783 key-in up
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=38 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=38, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=38 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=38, action=0
+orb key up (38): consumed by the application
+T 114929021353 key-done up
+ctl: key up -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 719.5 ms
+T 114929790342 frame 35 rects=3 px=186370 blit_ms=0.93
+T 114929790668 ack
+[shm-readback] partial: 8 rect(s), 101108 px (4.9% of the frame), 53.5 ms
+T 114929859963 frame 36 rects=1 px=94068 blit_ms=0.49
+T 114929860413 ack
+T 114929867239 mark cpu ui=103 web=2403 net=97 rx=3931718399 load=1.36 up=114929.82 uiu=72 uis=31  uimain=71
+T 114929880557 mark uith 13887:wpe_fb.trace:54/17 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] partial: 1 rect(s), 103833 px (5.0% of the frame), 42.8 ms
+T 114929907985 frame 37 rects=1 px=103833 blit_ms=0.44
+T 114929909226 ack
+T 114930530359 mark step up
+T 114930538652 mark send up 114930.53
+T 114930538700 key-in up
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=38 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=38, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=38 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=38, action=0
+orb key up (38): consumed by the application
+T 114930542962 key-done up
+ctl: key up -> sent
+T 114931132908 mark cpu ui=104 web=2454 net=98 rx=3931813322 load=1.36 up=114931.09 uiu=73 uis=31  uimain=73
+T 114931152340 mark uith 13887:wpe_fb.trace:55/18 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/0 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:11/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 718.7 ms
+T 114931317479 frame 38 rects=1 px=2073600 blit_ms=3.99
+T 114931317830 ack
+T 114932045274 mark step left
+T 114932059754 mark send left 114932.05
+T 114932059790 key-in left
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=37 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=37, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=37 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=37, action=0
+orb key left (37): consumed by the application
+T 114932060208 key-done left
+ctl: key left -> sent
+T 114932316838 mark cpu ui=107 web=2502 net=98 rx=3931894852 load=1.36 up=114932.27 uiu=75 uis=32  uimain=74
+T 114932334688 mark uith 13887:wpe_fb.trace:57/18 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:12/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 747.5 ms
+T 114932879453 frame 39 rects=1 px=470475 blit_ms=1.32
+T 114932880213 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 184.4 ms
+T 114933077560 frame 40 rects=1 px=470475 blit_ms=1.40
+T 114933078094 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 162.6 ms
+T 114933250242 frame 41 rects=1 px=470475 blit_ms=1.55
+T 114933250671 ack
+T 114933426370 mark cpu ui=109 web=2594 net=98 rx=3931970655 load=1.33 up=114933.40 uiu=76 uis=33  uimain=76
+T 114933435559 mark uith 13887:wpe_fb.trace:58/18 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:12/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114933569158 mark step left
+T 114933575206 mark send left 114933.57
+T 114933575254 key-in left
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=37 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=37, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=37 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=37, action=0
+orb key left (37): consumed by the application
+T 114933575767 key-done left
+ctl: key left -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 713.5 ms
+T 114934376794 frame 42 rects=1 px=2073600 blit_ms=7.22
+T 114934377409 ack
+T 114934571309 mark cpu ui=111 web=2677 net=99 rx=3932039644 load=1.33 up=114934.53 uiu=78 uis=33  uimain=78
+T 114934591262 mark uith 13887:wpe_fb.trace:59/19 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:12/8 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114935087268 mark phase burst
+T 114935113207 mark send right 114935.10
+T 114935113262 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935115088 key-done right
+ctl: key right -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 757.6 ms
+T 114935145849 frame 43 rects=1 px=470475 blit_ms=1.13
+T 114935146543 ack
+T 114935279947 mark send right 114935.27
+T 114935280088 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935281334 key-done right
+ctl: key right -> sent
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 166.6 ms
+T 114935321952 frame 44 rects=1 px=470475 blit_ms=1.79
+T 114935322479 ack
+T 114935422308 mark send right 114935.41
+T 114935422365 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935423873 key-done right
+ctl: key right -> sent
+T 114935591596 mark send right 114935.58
+T 114935591653 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935592822 key-done right
+ctl: key right -> sent
+T 114935745345 mark send right 114935.74
+T 114935745401 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935746558 key-done right
+ctl: key right -> sent
+T 114935791187 mark cpu ui=114 web=2788 net=99 rx=3932116369 load=1.33 up=114935.75 uiu=80 uis=34  uimain=80
+T 114935808140 mark uith 13887:wpe_fb.trace:61/19 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:12/9 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114935898216 mark send right 114935.89
+T 114935898272 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114935899468 key-done right
+ctl: key right -> sent
+T 114936052848 mark send right 114936.04
+T 114936052902 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114936053898 key-done right
+ctl: key right -> sent
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 801.1 ms
+T 114936150939 frame 45 rects=1 px=2073600 blit_ms=8.37
+T 114936155978 ack
+T 114936194730 mark send right 114936.19
+T 114936194785 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114936195669 key-done right
+ctl: key right -> sent
+T 114936336854 mark send right 114936.33
+T 114936336900 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114936337374 key-done right
+ctl: key right -> sent
+T 114936506561 mark send right 114936.50
+T 114936506616 key-in right
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=39 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=39, action=0
+orb key right (39): consumed by the application
+T 114936507103 key-done right
+ctl: key right -> sent
+T 114936636941 mark burst-end
+T 114936956192 mark cpu ui=119 web=2896 net=99 rx=3932190204 load=1.33 up=114936.92 uiu=84 uis=35  uimain=84
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 840.3 ms
+T 114937007943 frame 46 rects=1 px=470475 blit_ms=1.00
+T 114937008319 ack
+T 114937023462 mark uith 13887:wpe_fb.trace:64/20 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 185.1 ms
+T 114937200584 frame 47 rects=1 px=470475 blit_ms=1.89
+T 114937201276 ack
+[shm-readback] partial: 1 rect(s), 470475 px (22.7% of the frame), 162.1 ms
+T 114937375959 frame 48 rects=1 px=470475 blit_ms=1.43
+T 114937376466 ack
+T 114938176331 mark cpu ui=123 web=2945 net=101 rx=3932272981 load=1.23 up=114938.13 uiu=87 uis=36  uimain=86
+T 114938199348 mark uith 13887:wpe_fb.trace:66/20 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/2 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 715.8 ms
+T 114938838166 frame 49 rects=1 px=2073600 blit_ms=4.00
+T 114938838818 ack
+T 114939297948 mark cpu ui=124 web=3012 net=101 rx=3932343831 load=1.23 up=114939.27 uiu=88 uis=36  uimain=87
+T 114939314133 mark uith 13887:wpe_fb.trace:67/21 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114940409074 mark cpu ui=125 web=3012 net=101 rx=3932412232 load=1.23 up=114940.39 uiu=88 uis=37  uimain=88
+T 114940423944 mark uith 13887:wpe_fb.trace:67/21 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114941507341 mark cpu ui=125 web=3013 net=102 rx=3932469057 load=1.23 up=114941.49 uiu=88 uis=37  uimain=88
+T 114941523286 mark uith 13887:wpe_fb.trace:67/21 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114942607090 mark cpu ui=126 web=3013 net=102 rx=3932530388 load=1.23 up=114942.59 uiu=89 uis=37  uimain=88
+T 114942622080 mark uith 13887:wpe_fb.trace:68/21 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/9 13943:VBlankMonitor:4/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0
+T 114942752693 mark idle after=6s frames=4
+T 114942752741 mark phase transition
+T 114942763354 mark send ok 114942.76
+T 114942763403 key-in ok
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=13 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=13, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=13 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=13, action=0
+orb key ok (13): consumed by the application
+T 114942763860 key-done ok
+ctl: key ok -> sent
+ORB [ORBEngine.cpp]::[NotifyApplicationPageChanged]::[364] appId=1 url=http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1
+load-changed: STARTED
+load-changed: COMMITTED
+ORB [ORBEngine.cpp]::[CreateToken]::[301] uri=http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1 appId=1
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Drm.getSupportedDRMSystemIDs","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Drm method=getSupportedDRMSystemIDs
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Drm_GetSupportedDrmSystemIds]::[1274]
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[]}
+T 114943764532 mark cpu ui=131 web=3069 net=112 rx=3932910082 load=1.29 up=114943.71 uiu=93 uis=38  uimain=93
+T 114943796497 mark uith 13887:wpe_fb.trace:71/22 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:5/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:0/0 15442:wpe_fb.trace:0/0
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Broadcast.getCurrentChannel","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Broadcast method=getCurrentChannel
+ORB [BroadcastRequestHandler.cpp]::[IsRequestAllowed]::[580] payload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"error":"SecurityError"}
+load-changed: FINISHED
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Configuration.getCapabilities","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Configuration method=getCapabilities
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":{"audioOutputFormat":"stereo","broadcastUrns":["urn:dvb:broadcast:ird:video:25_Hz_H.264_AVC_HDTV_IRD","urn:dvb:broadcast:ird:video:30_Hz_H.264_AVC_HDTV_IRD","urn:dvb:broadcast:ird:video:50_Hz_H.264_AVC_HDTV_IRD","urn:dvb:broadcast:ird:video:60_Hz_H.264_AVC_HDTV_IRD","urn:dvb:broadcast:ird:video:50_Hz_HEVC_HDTV_8-bit_IRD","urn:dvb:broadcast:ird:video:60_Hz_HEVC_HDTV_8-bit_IRD","urn:dvb:broadcast:ird:audio:MPEG-1_and_MPEG-2_backwards_compatible","urn:dvb:broadcast:ird:audio:AC-3_and_enhanced_AC-3","urn:dvb:broadcast:ird:audio:MPEG-4_AAC_family"],"displaySizeHeight":"40","displaySizeMeasurementType":"built-in","displaySizeWidth":"71","graphicsLevels":["urn:hbbtv:graphics:performance:level1","urn:hbbtv:graphics:performance:level2"],"html5MediaVariableRateMax":"5.0","html5MediaVariableRateMin":"0.5","optionStrings":null,"parentalSchemes":["dvb-si"],"profileNameFragments":["+TRICKMODE","+DVB_T","+DVB_T2","+DVB_S","+DVB_S2"]}}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Configuration.getAudioProfiles","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Configuration method=getAudioProfiles
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[{"name":"MPEG1_L3","type":"audio/mpeg"},{"name":"HEAAC","type":"audio/mp4"},{"name":"MP4_HEAAC","syncTl":"dash_pr","transport":"dash","type":"audio/mp4"},{"name":"MP4_E-AC3","type":"audio/mp4"},{"name":"MP4_E-AC3","syncTl":"dash_pr","transport":"dash","type":"audio/mp4"}]}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Configuration.getVideoProfiles","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Configuration method=getVideoProfiles
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[{"name":"MP4_AVC_SD_25_HEAAC","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_HD_25_HEAAC","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_SD_25_HEAAC_EBUTTD","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_HD_25_HEAAC_EBUTTD","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"TS_AVC_SD_25_HEAAC","syncTl":"temi","type":"video/mpeg"},{"name":"TS_AVC_HD_25_HEAAC","syncTl":"temi","type":"video/mpeg"},{"name":"MP4_AVC_SD_25_HEAAC","type":"video/mp4"},{"name":"MP4_AVC_HD_25_HEAAC","type":"video/mp4"},{"name":"TS_AVC_SD_25_E-AC3","syncTl":"temi","type":"video/mpeg"},{"name":"TS_AVC_HD_25_E-AC3","syncTl":"temi","type":"video/mpeg"},{"name":"MP4_AVC_SD_25_E-AC3","type":"video/mp4"},{"name":"MP4_AVC_HD_25_E-AC3","type":"video/mp4"},{"name":"MP4_AVC_SD_25_E-AC3","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_HD_25_E-AC3","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_SD_25_E-AC3_EBUTTD","syncTl":"dash_pr","transport":"dash","type":"video/mp4"},{"name":"MP4_AVC_HD_25_E-AC3_EBUTTD","syncTl":"dash_pr","transport":"dash","type":"video/mp4"}]}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Configuration.getVideoDisplayFormats","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Configuration method=getVideoDisplayFormats
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[]}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Drm.getSupportedDRMSystemIDs","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Drm method=getSupportedDRMSystemIDs
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Drm_GetSupportedDrmSystemIds]::[1274]
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":[]}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Manager.showApplication","params":{}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Manager method=showApplication
+ORB [SessionCallbackImpl.cpp]::[ShowApplication]::[147]
+orb: application shown
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[240] jsonRequest={"token":{"payload":{"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"},"signature":"Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ=="},"method":"Manager.setKeyValue","params":{"value":863}}
+ORB [TokenManager.cpp]::[GetPayloadFromToken]::[111] signature=Njg4YTY2YWIwZmQ4ZGI4N2Q0YjYxNTk5M2FlN2NhMGYyNzQ5YmI5MDI3ZWE3YTZjNDEzZTRlZjQyMDJjYzUyZQ==
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[262] tokenPayload={"appId":1,"origin":"http://tv.ardmediathek.de","uri":"http://tv.ardmediathek.de/index.html?platform=hbbtv&kika=1&zdf=1"}
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[273] object=Manager method=setKeyValue
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Platform_SetCurrentKeySetMask]::[136] keySetMask=863
+ORB [ORBEngine.cpp]::[ExecuteBridgeRequest]::[288] response={"result":863}
+T 114945143778 mark cpu ui=139 web= net=130 rx=3933368684 load=1.29 up=114945.07 uiu=100 uis=40  uimain=97
+T 114945194239 mark uith 13887:wpe_fb.trace:75/22 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:5/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:2/1 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 1357.9 ms
+T 114945315702 frame 50 rects=1 px=2073600 blit_ms=12.90
+T 114945317687 ack
+T 114946507125 mark cpu ui=152 web=3371 net=153 rx=3934660399 load=1.29 up=114946.41 uiu=109 uis=43  uimain=106
+T 114946525691 mark uith 13887:wpe_fb.trace:82/24 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:5/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:4/2 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 1145.3 ms
+T 114946590513 frame 51 rects=1 px=2073600 blit_ms=12.83
+T 114946591960 ack
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 718.5 ms
+T 114947398897 frame 52 rects=1 px=2073600 blit_ms=6.50
+T 114947404208 ack
+T 114947669149 mark cpu ui=155 web=3484 net=154 rx=3934756867 load=1.29 up=114947.63 uiu=111 uis=44  uimain=109
+T 114947687168 mark uith 13887:wpe_fb.trace:84/25 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:4/2 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 770.4 ms
+T 114948258842 frame 53 rects=1 px=2073600 blit_ms=6.43
+T 114948264340 ack
+T 114948937655 mark cpu ui=158 web=3596 net=154 rx=3934849053 load=1.34 up=114948.90 uiu=113 uis=45  uimain=110
+T 114948953837 mark uith 13887:wpe_fb.trace:85/25 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:4/2 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 723.5 ms
+T 114949020888 frame 54 rects=2 px=1049314 blit_ms=4.74
+T 114949021433 ack
+[shm-readback] partial: 3 rect(s), 1343074 px (64.8% of the frame), 440.8 ms
+T 114949482948 frame 55 rects=1 px=293760 blit_ms=0.66
+T 114949483530 ack
+T 114950106315 mark cpu ui=160 web=3706 net=154 rx=3934927155 load=1.34 up=114950.07 uiu=115 uis=45  uimain=113
+T 114950122670 mark uith 13887:wpe_fb.trace:87/26 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:4/2 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 713.5 ms
+T 114950224400 frame 56 rects=1 px=2073600 blit_ms=4.86
+T 114950225298 ack
+T 114951260192 mark cpu ui=163 web=3758 net=158 rx=3935153148 load=1.34 up=114951.22 uiu=117 uis=46  uimain=114
+T 114951279779 mark uith 13887:wpe_fb.trace:88/26 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:4/2 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] full: 1 rect(s), 2073600 px (100.0% of the frame), 760.6 ms
+T 114951603154 frame 57 rects=4 px=2642632 blit_ms=8.38
+T 114951604227 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 469.2 ms
+T 114952138251 frame 58 rects=2 px=1710720 blit_ms=5.35
+T 114952138816 ack
+T 114952414367 mark cpu ui=167 web=3862 net=160 rx=3935235559 load=1.34 up=114952.38 uiu=120 uis=47  uimain=117
+T 114952433366 mark uith 13887:wpe_fb.trace:91/26 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 479.2 ms
+T 114952643739 frame 59 rects=3 px=2404264 blit_ms=6.26
+T 114952645194 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 432.6 ms
+T 114953094516 frame 60 rects=1 px=86940 blit_ms=0.60
+T 114953095274 ack
+T 114953564201 mark cpu ui=169 web=3964 net=160 rx=3935320203 load=1.32 up=114953.53 uiu=122 uis=47  uimain=119
+T 114953581188 mark uith 13887:wpe_fb.trace:93/27 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 718.5 ms
+T 114953847423 frame 61 rects=4 px=3570662 blit_ms=8.70
+T 114953848305 ack
+T 114954677632 mark cpu ui=170 web=3992 net=160 rx=3935403261 load=1.32 up=114954.65 uiu=123 uis=47  uimain=121
+T 114954691159 mark uith 13887:wpe_fb.trace:94/27 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114955821537 mark cpu ui=171 web=3992 net=160 rx=3935486019 load=1.32 up=114955.78 uiu=124 uis=48  uimain=122
+T 114955855391 mark uith 13887:wpe_fb.trace:95/27 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 636.6 ms
+T 114956525517 frame 62 rects=2 px=1229772 blit_ms=2.28
+T 114956526623 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 457.5 ms
+T 114957027185 frame 63 rects=2 px=1777920 blit_ms=5.71
+T 114957028828 ack
+T 114957085466 mark cpu ui=174 web=4096 net=163 rx=3935693661 load=1.32 up=114957.02 uiu=127 uis=48  uimain=124
+T 114957125233 mark uith 13887:wpe_fb.trace:97/27 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/3 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 441.0 ms
+T 114957502751 frame 64 rects=3 px=2471464 blit_ms=7.57
+T 114957503528 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 423.9 ms
+T 114957940177 frame 65 rects=1 px=86940 blit_ms=0.54
+T 114957940620 ack
+T 114958342751 mark cpu ui=178 web=4210 net= rx=3935791670 load=1.69 up=114958.29 uiu=129 uis=49  uimain=126
+T 114958369490 mark uith 13887:wpe_fb.trace:99/27 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 661.5 ms
+T 114958629289 frame 66 rects=4 px=3570662 blit_ms=10.59
+T 114958629740 ack
+T 114959474889 mark cpu ui=179 web=4249 net=164 rx=3935873272 load=1.69 up=114959.45 uiu=130 uis=49  uimain=128
+T 114959486415 mark uith 13887:wpe_fb.trace:100/28 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114960595724 mark cpu ui=180 web=4249 net=164 rx=3935954435 load=1.69 up=114960.56 uiu=131 uis=49  uimain=129
+T 114960613744 mark uith 13887:wpe_fb.trace:101/28 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/1 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:5/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 654.2 ms
+T 114961530194 frame 67 rects=2 px=1229772 blit_ms=3.27
+T 114961530766 ack
+T 114961808174 mark cpu ui=183 web=4330 net=166 rx=3936402381 load=1.69 up=114961.77 uiu=133 uis=50  uimain=130
+T 114961825184 mark uith 13887:wpe_fb.trace:103/28 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/3 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 537.9 ms
+T 114962104760 frame 68 rects=2 px=1714560 blit_ms=3.85
+T 114962105503 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 453.1 ms
+T 114962596335 frame 69 rects=4 px=2437474 blit_ms=8.23
+T 114962600592 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 498.1 ms
+T 114963110615 frame 70 rects=1 px=86940 blit_ms=0.74
+T 114963111973 ack
+T 114963175205 mark cpu ui=186 web=4432 net=168 rx=3936600389 load=1.88 up=114963.13 uiu=136 uis=51  uimain=134
+T 114963192292 mark uith 13887:wpe_fb.trace:105/29 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 665.3 ms
+T 114963804030 frame 71 rects=4 px=3570662 blit_ms=8.58
+T 114963804821 ack
+T 114964320737 mark cpu ui=188 web=4508 net=168 rx=3936797225 load=1.88 up=114964.29 uiu=137 uis=51  uimain=135
+T 114964333744 mark uith 13887:wpe_fb.trace:106/29 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114965447981 mark cpu ui=189 web=4509 net=169 rx=3937031307 load=1.88 up=114965.42 uiu=138 uis=51  uimain=136
+T 114965463566 mark uith 13887:wpe_fb.trace:107/29 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 648.7 ms
+T 114966532545 frame 72 rects=3 px=1229448 blit_ms=5.15
+T 114966533345 ack
+T 114966665254 mark cpu ui=191 web= net= rx=3937236901 load=1.88 up=114966.62 uiu=140 uis=52  uimain=138
+T 114966682359 mark uith 13887:wpe_fb.trace:109/29 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:6/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 478.0 ms
+T 114967055235 frame 73 rects=2 px=1674240 blit_ms=3.64
+T 114967055950 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 425.1 ms
+T 114967514223 frame 74 rects=3 px=2367784 blit_ms=14.56
+T 114967522480 ack
+T 114967827628 mark cpu ui=195 web=4680 net=173 rx=3937318149 load=1.88 up=114967.79 uiu=142 uis=53  uimain=141
+T 114967847426 mark uith 13887:wpe_fb.trace:111/30 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 470.2 ms
+T 114968001839 frame 75 rects=1 px=86940 blit_ms=0.61
+T 114968003973 ack
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 632.1 ms
+T 114968662645 frame 76 rects=4 px=3570662 blit_ms=11.99
+T 114968663702 ack
+T 114968954814 mark cpu ui=197 web=4764 net=173 rx=3937387246 load=1.81 up=114968.93 uiu=144 uis=53  uimain=143
+T 114968964592 mark uith 13887:wpe_fb.trace:113/30 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114970054402 mark cpu ui=198 web=4764 net=173 rx=3937455197 load=1.81 up=114970.03 uiu=145 uis=53  uimain=143
+T 114970063358 mark uith 13887:wpe_fb.trace:113/30 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:6/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114971295058 mark cpu ui=200 web=4793 net=176 rx=3937798570 load=1.81 up=114971.25 uiu=146 uis=54  uimain=144
+T 114971327120 mark uith 13887:wpe_fb.trace:114/30 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:7/4 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 669.1 ms
+T 114971562579 frame 77 rects=2 px=1229772 blit_ms=2.70
+T 114971562946 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 476.0 ms
+T 114972062184 frame 78 rects=2 px=1680000 blit_ms=4.59
+T 114972062565 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 424.1 ms
+T 114972506473 frame 79 rects=3 px=2373544 blit_ms=7.66
+T 114972512716 ack
+T 114972646509 mark cpu ui=203 web=4910 net=178 rx=3937876298 load=1.81 up=114972.59 uiu=150 uis=54  uimain=148
+T 114972670409 mark uith 13887:wpe_fb.trace:117/31 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:7/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 444.5 ms
+T 114972971108 frame 80 rects=1 px=86940 blit_ms=0.76
+T 114972971460 ack
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 599.9 ms
+T 114973599708 frame 81 rects=4 px=3570662 blit_ms=12.20
+T 114973601450 ack
+T 114973767943 mark cpu ui=207 web=5017 net= rx=3937946697 load=1.74 up=114973.74 uiu=152 uis=55  uimain=150
+T 114973780289 mark uith 13887:wpe_fb.trace:119/31 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:7/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114974871918 mark cpu ui=207 web=5017 net=178 rx=3938027427 load=1.74 up=114974.85 uiu=152 uis=55  uimain=151
+T 114974882109 mark uith 13887:wpe_fb.trace:120/31 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:7/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114976094387 mark cpu ui=208 web=5026 net=180 rx=3938262794 load=1.74 up=114976.03 uiu=154 uis=55  uimain=152
+T 114976129099 mark uith 13887:wpe_fb.trace:121/31 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:7/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 642.2 ms
+T 114976552556 frame 82 rects=2 px=1229772 blit_ms=2.40
+T 114976553248 ack
+[shm-readback] partial: 32 rect(s), 1250816 px (60.3% of the frame), 471.1 ms
+T 114977054705 frame 83 rects=2 px=1674240 blit_ms=4.43
+T 114977055747 ack
+T 114977419224 mark cpu ui=212 web=5142 net=182 rx=3938346385 load=1.74 up=114977.35 uiu=156 uis=56  uimain=154
+T 114977459526 mark uith 13887:wpe_fb.trace:123/31 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 458.6 ms
+T 114977532521 frame 84 rects=3 px=2367784 blit_ms=5.24
+T 114977533253 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 426.9 ms
+T 114977976569 frame 85 rects=1 px=86940 blit_ms=0.46
+T 114977977411 ack
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 657.8 ms
+T 114978669259 frame 86 rects=4 px=3570662 blit_ms=16.19
+T 114978673124 ack
+T 114978730820 mark cpu ui=214 web=5266 net=182 rx=3938538727 load=1.76 up=114978.70 uiu=159 uis=56  uimain=157
+T 114978745724 mark uith 13887:wpe_fb.trace:126/32 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114979852932 mark cpu ui=216 web=5273 net=182 rx=3938796199 load=1.76 up=114979.83 uiu=160 uis=56  uimain=158
+T 114979863582 mark uith 13887:wpe_fb.trace:126/32 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114981043902 mark cpu ui=217 web=5277 net=184 rx=3939112309 load=1.76 up=114981.01 uiu=161 uis=57  uimain=159
+T 114981063875 mark uith 13887:wpe_fb.trace:127/32 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 671.2 ms
+T 114981638325 frame 87 rects=2 px=1229772 blit_ms=2.96
+T 114981639122 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 468.4 ms
+T 114982139303 frame 88 rects=2 px=1664880 blit_ms=5.23
+T 114982140202 ack
+T 114982250572 mark cpu ui=220 web=5388 net=187 rx=3939192740 load=1.76 up=114982.20 uiu=163 uis=58  uimain=161
+T 114982268208 mark uith 13887:wpe_fb.trace:129/32 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:7/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 439.8 ms
+T 114982607590 frame 89 rects=3 px=1932514 blit_ms=4.28
+T 114982607957 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 410.9 ms
+T 114983035940 frame 90 rects=1 px=86940 blit_ms=0.57
+T 114983036625 ack
+T 114983401933 mark cpu ui=223 web=5496 net=187 rx=3939268838 load=2.02 up=114983.36 uiu=165 uis=58  uimain=164
+T 114983418524 mark uith 13887:wpe_fb.trace:131/33 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 645.4 ms
+T 114983714717 frame 91 rects=4 px=3570662 blit_ms=10.11
+T 114983715814 ack
+T 114983943729 mark idle-timeout after=40s frames=42
+T 114984520878 mark cpu ui=225 web=5531 net=187 rx=3939346792 load=2.02 up=114984.49 uiu=167 uis=58  uimain=165
+T 114984530651 mark uith 13887:wpe_fb.trace:132/33 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:8/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114984949729 mark phase back
+T 114984956593 mark send back 114984.95
+T 114984956638 key-in back
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=461 keyAction=1
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=461, action=1
+ORB [ORBEngine.cpp]::[SendKeyEvent]::[410] keyCode=461 keyAction=0
+ORB [ORBPlatformEventHandlerImpl.cpp]::[OnInputKeyGenerated]::[332] keyCode=461, action=0
+orb key back (461): consumed by the application
+T 114984957737 key-done back
+ctl: key back -> sent
+T 114985622536 mark cpu ui=227 web=5536 net=187 rx=3939433426 load=2.02 up=114985.60 uiu=169 uis=58  uimain=167
+T 114985635215 mark uith 13887:wpe_fb.trace:134/33 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/4 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 618.2 ms
+T 114986556715 frame 92 rects=2 px=1229772 blit_ms=2.87
+T 114986557483 ack
+T 114986763872 mark cpu ui=229 web=5615 net=189 rx=3939659961 load=2.02 up=114986.73 uiu=171 uis=59  uimain=168
+T 114986783621 mark uith 13887:wpe_fb.trace:135/33 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/5 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 515.1 ms
+T 114987100483 frame 93 rects=2 px=1689600 blit_ms=5.69
+T 114987101292 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 440.3 ms
+T 114987564214 frame 94 rects=4 px=2412514 blit_ms=6.90
+T 114987565026 ack
+T 114987920940 mark cpu ui=232 web=5713 net=191 rx=3939742823 load=2.02 up=114987.88 uiu=173 uis=59  uimain=170
+T 114987949951 mark uith 13887:wpe_fb.trace:138/33 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 512.5 ms
+T 114988099820 frame 95 rects=1 px=86940 blit_ms=0.54
+T 114988101204 ack
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 618.0 ms
+T 114988746833 frame 96 rects=4 px=3570662 blit_ms=11.14
+T 114988747635 ack
+T 114989040872 mark cpu ui=235 web=5793 net=191 rx=3939818614 load=1.94 up=114989.02 uiu=175 uis=60  uimain=173
+T 114989051764 mark uith 13887:wpe_fb.trace:139/34 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114990151654 mark cpu ui=236 web=5793 net=191 rx=3939895317 load=1.94 up=114990.12 uiu=176 uis=60  uimain=174
+T 114990161585 mark uith 13887:wpe_fb.trace:140/34 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114991336835 mark cpu ui=237 web=5826 net=192 rx=3940019106 load=1.94 up=114991.29 uiu=177 uis=60  uimain=175
+T 114991355443 mark uith 13887:wpe_fb.trace:141/34 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:9/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 678.5 ms
+T 114991622444 frame 97 rects=2 px=1229772 blit_ms=2.79
+T 114991623142 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 457.8 ms
+T 114992109393 frame 98 rects=2 px=1689600 blit_ms=7.91
+T 114992109894 ack
+T 114992479582 mark cpu ui=240 web=5928 net=194 rx=3940097437 load=1.94 up=114992.45 uiu=179 uis=61  uimain=177
+T 114992496648 mark uith 13887:wpe_fb.trace:143/34 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 500.6 ms
+T 114992628188 frame 99 rects=4 px=2412514 blit_ms=5.47
+T 114992629105 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 450.1 ms
+T 114993092947 frame 100 rects=1 px=86940 blit_ms=0.62
+T 114993093503 ack
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 764.5 ms
+T 114993886358 frame 101 rects=4 px=3570662 blit_ms=13.11
+T 114993888131 ack
+T 114993891325 mark cpu ui=243 web=6031 net=194 rx=3940341664 load=1.94 up=114993.77 uiu=181 uis=62  uimain=179
+T 114993907443 mark uith 13887:wpe_fb.trace:146/35 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114995057779 mark cpu ui=245 web=6049 net=194 rx=3940691408 load=1.94 up=114995.01 uiu=183 uis=62  uimain=181
+T 114995071925 mark uith 13887:wpe_fb.trace:146/35 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 114996360858 mark cpu ui=246 web=6075 net=194 rx=3940982978 load=1.94 up=114996.30 uiu=184 uis=62  uimain=182
+T 114996381718 mark uith 13887:wpe_fb.trace:147/35 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/2 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 730.8 ms
+T 114996678578 frame 102 rects=2 px=1229772 blit_ms=2.73
+T 114996679471 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 525.3 ms
+T 114997221479 frame 103 rects=2 px=1695360 blit_ms=3.62
+T 114997222975 ack
+T 114997734240 mark cpu ui=250 web=6182 net=196 rx=3941228806 load=1.94 up=114997.60 uiu=187 uis=63  uimain=185
+T 114997762085 mark uith 13887:wpe_fb.trace:149/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/6 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 615.2 ms
+T 114997873372 frame 104 rects=4 px=2418274 blit_ms=7.90
+T 114997885095 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 470.3 ms
+T 114998364454 frame 105 rects=1 px=86940 blit_ms=0.53
+T 114998365272 ack
+T 114998955855 mark cpu ui=253 web=6284 net=196 rx=3941467619 load=2.03 up=114998.91 uiu=189 uis=64  uimain=187
+T 114998973271 mark uith 13887:wpe_fb.trace:151/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1840072 px (88.7% of the frame), 753.6 ms
+T 114999147811 frame 106 rects=4 px=3570662 blit_ms=10.94
+T 114999148644 ack
+T 115000068982 mark cpu ui=255 web=6306 net=196 rx=3941548637 load=2.03 up=115000.05 uiu=191 uis=64  uimain=189
+T 115000080475 mark uith 13887:wpe_fb.trace:153/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:10/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115001304025 mark cpu ui=255 web=6329 net=196 rx=3941623655 load=2.03 up=115001.23 uiu=192 uis=64  uimain=190
+T 115001333329 mark uith 13887:wpe_fb.trace:154/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:8/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 649.1 ms
+T 115001607168 frame 107 rects=3 px=1229448 blit_ms=3.38
+T 115001607852 ack
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 419.7 ms
+T 115002042857 frame 108 rects=2 px=1645440 blit_ms=4.26
+T 115002043898 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 429.0 ms
+T 115002497741 frame 109 rects=3 px=2338984 blit_ms=8.14
+T 115002507410 ack
+T 115002569655 mark cpu ui=258 web=6446 net=196 rx=3941701496 load=2.03 up=115002.51 uiu=195 uis=64  uimain=193
+T 115002587547 mark uith 13887:wpe_fb.trace:157/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 628.9 ms
+T 115003163834 frame 110 rects=4 px=3018116 blit_ms=12.19
+T 115003164677 ack
+T 115003692190 mark cpu ui=261 web=6516 net=196 rx=3941776035 load=1.95 up=115003.66 uiu=197 uis=64  uimain=194
+T 115003703252 mark uith 13887:wpe_fb.trace:159/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115004796600 mark cpu ui=261 web=6516 net=196 rx=3941850732 load=1.95 up=115004.77 uiu=197 uis=64  uimain=195
+T 115004810589 mark uith 13887:wpe_fb.trace:159/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115005924865 mark cpu ui=262 web=6516 net=196 rx=3941919719 load=1.95 up=115005.88 uiu=198 uis=65  uimain=196
+T 115005945624 mark uith 13887:wpe_fb.trace:160/36 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1843400 px (88.9% of the frame), 635.8 ms
+T 115006619687 frame 111 rects=4 px=3212880 blit_ms=11.71
+T 115006630334 ack
+[shm-readback] partial: 32 rect(s), 1246976 px (60.1% of the frame), 434.7 ms
+T 115007097432 frame 112 rects=1 px=1209600 blit_ms=4.23
+T 115007098403 ack
+T 115007160306 mark cpu ui=265 web=6621 net=196 rx=3941997851 load=1.95 up=115007.13 uiu=201 uis=65  uimain=199
+T 115007177285 mark uith 13887:wpe_fb.trace:162/37 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1227520 px (59.2% of the frame), 432.4 ms
+T 115007573238 frame 113 rects=3 px=2169500 blit_ms=6.33
+T 115007576434 ack
+T 115008261077 mark cpu ui=267 web=6671 net=196 rx=3942069109 load=1.79 up=115008.24 uiu=202 uis=65  uimain=200
+T 115008277277 mark uith 13887:wpe_fb.trace:163/37 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115009365273 mark cpu ui=268 web=6671 net=196 rx=3942152175 load=1.79 up=115009.35 uiu=202 uis=66  uimain=201
+T 115009382244 mark uith 13887:wpe_fb.trace:164/37 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115010468885 mark cpu ui=269 web=6671 net=196 rx=3942269255 load=1.79 up=115010.44 uiu=203 uis=66  uimain=201
+T 115010489104 mark uith 13887:wpe_fb.trace:164/37 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 469.5 ms
+T 115011410055 frame 114 rects=4 px=2592530 blit_ms=7.22
+T 115011411176 ack
+T 115011744684 mark cpu ui=270 web=6730 net=196 rx=3942345244 load=1.79 up=115011.68 uiu=204 uis=66  uimain=202
+T 115011765159 mark uith 13887:wpe_fb.trace:166/37 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 483.8 ms
+T 115011917543 frame 115 rects=2 px=1596800 blit_ms=3.67
+T 115011918886 ack
+[shm-readback] partial: 32 rect(s), 1226240 px (59.1% of the frame), 447.4 ms
+T 115012396498 frame 116 rects=3 px=2290344 blit_ms=6.35
+T 115012397376 ack
+T 115012913704 mark cpu ui=274 web=6829 net=196 rx=3942425506 load=1.79 up=115012.88 uiu=207 uis=67  uimain=205
+T 115012932231 mark uith 13887:wpe_fb.trace:167/38 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/7 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 717.2 ms
+T 115013200295 frame 117 rects=4 px=3570662 blit_ms=9.26
+T 115013200985 ack
+T 115014032938 mark cpu ui=275 web=6862 net=196 rx=3942501974 load=1.73 up=115014.01 uiu=208 uis=67  uimain=207
+T 115014043706 mark uith 13887:wpe_fb.trace:169/38 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/8 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115015132092 mark cpu ui=275 web=6862 net=196 rx=3942574864 load=1.73 up=115015.11 uiu=208 uis=67  uimain=207
+T 115015142050 mark uith 13887:wpe_fb.trace:169/38 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:11/8 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+T 115015800128 mark idle-timeout after=30s frames=26
+T 115016301428 mark cpu ui=277 web= net= rx=3942643539 load=1.73 up=115016.26 uiu=210 uis=67  uimain=208
+T 115016325742 mark uith 13887:wpe_fb.trace:170/38 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:12/8 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 973.5 ms
+T 115016956651 frame 118 rects=2 px=1229772 blit_ms=3.38
+T 115016957406 ack
+T 115017205879 mark end
+T 115017513562 mark cpu ui=280 web=6965 net=196 rx=3942724443 load=1.73 up=115017.48 uiu=212 uis=68  uimain=210
+T 115017535067 mark uith 13887:wpe_fb.trace:172/38 13893:ebsiteDataStore:0/0 13896:gmain:0/0 13897:PressureMonitor:0/3 13898:wpe_fb.trace:0/0 13899:pool-spawner:0/0 13902:ReceiveQueue:0/0 13903:ReceiveQueue:14/10 13943:VBlankMonitor:9/5 13944:wpe_fb.trace:0/0 14201:gdbus:0/0 15423:ReceiveQueue:12/8 15442:wpe_fb.trace:0/0 15475:ebsiteDataStore:0/0 15478:ReceiveQueue:0/0
+[shm-readback] partial: 32 rect(s), 1239808 px (59.8% of the frame), 553.6 ms
+T 115017571915 frame 119 rects=2 px=1735040 blit_ms=4.34
+T 115017573093 ack
+ctl: quit
+ORB [ORBEngine.cpp]::[Stop]::[198]
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[Platform_Finalise]::[112]
+ORB [ORBPlatformLoader.cpp]::[Unload]::[103]
+ORB [ORBPlatformLoader.cpp]::[Unload]::[115] dlsym success
+ORBPlatformMockImpl [ORBPlatformMockImpl.cpp]::[~ORBPlatformMockImpl]::[78]
+ORB [ORBPlatformLoader.cpp]::[Unload]::[119] Destroy ORBPlatform success
+ORB [ORBPlatformLoader.cpp]::[Unload]::[130] Success
+== sink: 119 frames delivered, 0.9 fps, 1490420 px/frame average (71.9% of the view), 5.19 ms per frame copy
+== alpha: 0 px fully transparent (0.0%), 0 partial (0.0%), 2073600 opaque (225.0%)
+ORB [ORBEngine.cpp]::[~ORBEngine]::[141]
+ORB [ORBPlatformEventHandlerImpl.cpp]::[~ORBPlatformEventHandlerImpl]::[41]
+[shm-readback] partial: 39 rect(s), 1844424 px (88.9% of the frame), 654.2 ms

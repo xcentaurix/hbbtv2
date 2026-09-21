@@ -242,6 +242,230 @@ int orb_host_launch(const char *url)
     return ok ? 1 : 0;
 }
 
+namespace {
+struct HostChannel {
+    bool set = false;
+    int onid = 0, tsid = 0, sid = 0;
+    std::string name;
+};
+HostChannel g_channel;
+std::mutex g_channelMutex;
+} // namespace
+
+void orb_host_set_channel(int onid, int tsid, int sid, const char *name)
+{
+    std::lock_guard<std::mutex> lock(g_channelMutex);
+    g_channel.set = onid >= 0 && tsid >= 0 && sid >= 0;
+    g_channel.onid = onid;
+    g_channel.tsid = tsid;
+    g_channel.sid = sid;
+    g_channel.name = name ? name : "";
+    fprintf(stderr, "[orb_host] channel %d/%d/%d \"%s\"\n", onid, tsid, sid, g_channel.name.c_str());
+}
+
+int orb_host_current_channel(int *onid, int *tsid, int *sid, char *name, unsigned long size)
+{
+    std::lock_guard<std::mutex> lock(g_channelMutex);
+    if (!g_channel.set)
+        return 0;
+    if (onid)
+        *onid = g_channel.onid;
+    if (tsid)
+        *tsid = g_channel.tsid;
+    if (sid)
+        *sid = g_channel.sid;
+    if (name && size) {
+        snprintf(name, size, "%s", g_channel.name.c_str());
+    }
+    return 1;
+}
+
+namespace {
+std::vector<OrbHostComponent> g_components;
+bool g_haveComponents = false; /* the plugin has sent a list (possibly an empty one) */
+std::mutex g_componentsMutex;
+void (*g_componentsChanged)(int type, int selectionChanged) = nullptr;
+void (*g_componentHandler)(int type, const char *what, void *user) = nullptr;
+void *g_componentHandlerUser = nullptr;
+
+std::vector<std::string> Split(const std::string &text, char separator)
+{
+    std::vector<std::string> parts;
+    size_t start = 0;
+    for (;;) {
+        size_t end = text.find(separator, start);
+        parts.push_back(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        if (end == std::string::npos)
+            return parts;
+        start = end + 1;
+    }
+}
+
+bool ParseComponent(const std::string &record, OrbHostComponent &out)
+{
+    std::vector<std::string> f = Split(record, ':');
+    if (f.empty() || f[0].size() != 1)
+        return false;
+    auto number = [&](size_t i) { return i < f.size() ? atoi(f[i].c_str()) : 0; };
+    auto text = [&](size_t i, char *destination, size_t size) { snprintf(destination, size, "%s", i < f.size() ? f[i].c_str() : ""); };
+    memset(&out, 0, sizeof out);
+    switch (f[0][0]) {
+    case 'V': /* V:<pid>:<encoding>:<encrypted>:<aspect> */
+        out.type = ORB_HOST_COMPONENT_VIDEO;
+        out.pid = number(1);
+        text(2, out.encoding, sizeof out.encoding);
+        out.encrypted = number(3) != 0;
+        out.extra = number(4);
+        out.active = 1;
+        break;
+    case 'A': /* A:<pid>:<language>:<encoding>:<channels>:<active>:<audio description> */
+        out.type = ORB_HOST_COMPONENT_AUDIO;
+        out.pid = number(1);
+        text(2, out.language, sizeof out.language);
+        text(3, out.encoding, sizeof out.encoding);
+        out.extra = number(4);
+        out.active = number(5) != 0;
+        out.flag = number(6) != 0;
+        break;
+    case 'S': /* S:<pid>:<language>:<encoding>:<active>:<hearing impaired> */
+        out.type = ORB_HOST_COMPONENT_SUBTITLE;
+        out.pid = number(1);
+        text(2, out.language, sizeof out.language);
+        text(3, out.encoding, sizeof out.encoding);
+        out.active = number(4) != 0;
+        out.extra = number(5) != 0;
+        break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+/* Do the components of `type` differ in anything but which one is presented? / in which one is presented? */
+void Compare(const std::vector<OrbHostComponent> &before, const std::vector<OrbHostComponent> &after, int type, bool &listChanged, bool &selectionChanged)
+{
+    std::vector<OrbHostComponent> a, b;
+    for (const auto &c : before)
+        if (c.type == type)
+            a.push_back(c);
+    for (const auto &c : after)
+        if (c.type == type)
+            b.push_back(c);
+    listChanged = selectionChanged = false;
+    if (a.size() != b.size()) {
+        listChanged = true;
+        return;
+    }
+    for (size_t i = 0; i < a.size(); i++) {
+        if (a[i].pid != b[i].pid || a[i].encrypted != b[i].encrypted || a[i].extra != b[i].extra || a[i].flag != b[i].flag
+            || strcmp(a[i].encoding, b[i].encoding) || strcmp(a[i].language, b[i].language))
+            listChanged = true;
+        if (a[i].active != b[i].active)
+            selectionChanged = true;
+    }
+}
+} // namespace
+
+void orb_host_set_components(const char *text)
+{
+    std::vector<OrbHostComponent> parsed;
+    for (const std::string &record : Split(text ? text : "", ';')) {
+        OrbHostComponent component;
+        if (!record.empty() && ParseComponent(record, component))
+            parsed.push_back(component);
+    }
+    std::vector<OrbHostComponent> previous;
+    bool hadComponents;
+    void (*changed)(int, int);
+    {
+        std::lock_guard<std::mutex> lock(g_componentsMutex);
+        previous = g_components;
+        hadComponents = g_haveComponents;
+        g_components = parsed;
+        g_haveComponents = true;
+        changed = g_componentsChanged;
+    }
+    if (!hadComponents)
+        fprintf(stderr, "[orb_host] components: %zu (first list)\n", parsed.size());
+    if (!hadComponents || !changed)
+        return;
+    for (int type = ORB_HOST_COMPONENT_VIDEO; type <= ORB_HOST_COMPONENT_SUBTITLE; type++) {
+        bool listChanged, selectionChanged;
+        Compare(previous, parsed, type, listChanged, selectionChanged);
+        if (listChanged || selectionChanged)
+            fprintf(stderr, "[orb_host] components of type %d changed (%s)\n", type, listChanged ? "list" : "selection");
+        if (listChanged)
+            changed(type, 0);
+        else if (selectionChanged)
+            changed(type, 1);
+    }
+}
+
+int orb_host_components(OrbHostComponent *out, int max)
+{
+    std::lock_guard<std::mutex> lock(g_componentsMutex);
+    int count = 0;
+    for (const auto &component : g_components) {
+        if (out && count < max)
+            out[count] = component;
+        count++;
+    }
+    return out && count > max ? max : count;
+}
+
+void orb_host_set_component_handler(void (*handler)(int type, const char *what, void *user), void *user)
+{
+    std::lock_guard<std::mutex> lock(g_componentsMutex);
+    g_componentHandler = handler;
+    g_componentHandlerUser = user;
+}
+
+void orb_host_service_selected(int onid, int tsid, int sid)
+{
+    auto handler = orb::ORBEngine::GetSharedInstance().GetPlatformEventHandler();
+    fprintf(stderr, "[orb_host] service selected %d/%d/%d: waiting for its AIT\n", onid, tsid, sid);
+    if (handler)
+        handler->OnChannelStatusChanged(onid, tsid, sid, orb::Channel::CHANNEL_STATUS_CONNECTING, false);
+}
+
+void orb_host_ait_section(int pid, int sid, const unsigned char *data, unsigned int length)
+{
+    auto handler = orb::ORBEngine::GetSharedInstance().GetPlatformEventHandler();
+    if (!handler || !data || !length)
+        return;
+    std::vector<unsigned char> copy(data, data + length); /* the engine takes a non-const pointer */
+    fprintf(stderr, "[orb_host] AIT section: pid %d service %d, %u bytes\n", pid, sid, length);
+    handler->OnAitSectionReceived((unsigned short)pid, (unsigned short)sid, copy.data(), length);
+}
+
+void orb_host_broadcast_stopped(void)
+{
+    auto handler = orb::ORBEngine::GetSharedInstance().GetPlatformEventHandler();
+    fprintf(stderr, "[orb_host] broadcast stopped\n");
+    if (handler)
+        handler->OnBroadcastStopped();
+}
+
+int orb_host_launch_broadcast(const char *url)
+{
+    if (url && !strncmp(url, "dvb://", 6)) { /* dvb://current.ait/<org>.<app>: an application of the AIT of the selected service */
+        bool ok = orb::ORBEngine::GetSharedInstance().GetApplicationManager()->CreateApplication(INVALID_APP_ID, url);
+        fprintf(stderr, "[orb_host] CreateApplication(%s) -> %s\n", url, ok ? "ok" : "FAILED");
+        return ok ? 1 : 0;
+    }
+    HostChannel channel;
+    {
+        std::lock_guard<std::mutex> lock(g_channelMutex);
+        channel = g_channel;
+    }
+    if (!channel.set)
+        return orb_host_launch(url);
+    bool ok = orb::ORBEngine::GetSharedInstance().GetApplicationManager()->CreateBroadcastRelatedApplication(
+        url, (uint16_t)channel.onid, (uint16_t)channel.tsid, (uint16_t)channel.sid);
+    fprintf(stderr, "[orb_host] CreateBroadcastRelatedApplication(%s, %d/%d/%d) -> %s\n", url, channel.onid, channel.tsid, channel.sid, ok ? "ok" : "FAILED");
+    return ok ? 1 : 0;
+}
+
 int orb_host_key(int key_code, int down)
 {
     return orb::ORBEngine::GetSharedInstance().SendKeyEvent(key_code, down ? 1 : 0) ? 1 : 0;
@@ -262,6 +486,26 @@ void orb_host_platform_set_visible(int visible)
 {
     if (g_cb.set_visible)
         g_cb.set_visible(visible, g_cb.user);
+}
+
+void orb_host_platform_on_components(void (*changed)(int type, int selection_changed))
+{
+    std::lock_guard<std::mutex> lock(g_componentsMutex);
+    g_componentsChanged = changed;
+}
+
+void orb_host_platform_select_component(int type, const char *what)
+{
+    void (*handler)(int, const char *, void *);
+    void *user;
+    {
+        std::lock_guard<std::mutex> lock(g_componentsMutex);
+        handler = g_componentHandler;
+        user = g_componentHandlerUser;
+    }
+    fprintf(stderr, "[orb_host] select component type %d: %s%s\n", type, what ? what : "", handler ? "" : " (nobody to tell)");
+    if (handler)
+        handler(type, what ? what : "", user);
 }
 
 } // extern "C"

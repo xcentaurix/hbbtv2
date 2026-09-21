@@ -1,0 +1,163 @@
+Navigation speed - analysis and plan
+====================================
+Question: HbbTV works, but moving around in an application with the remote control is slow. Where does the time go and what do
+we do about it?  (Analysis of the code and of the numbers measured earlier in this project; nothing new was measured for this
+document - Phase 0 below does that first.)
+
+Labels:  [measured] number from a run on the box   [source] verified in the source code   [code] read in our code   [inferred]
+arithmetic or reasoning, not yet confirmed by a measurement
+
+0. Short answer
+---------------
+The dominant cost is not JavaScript and not our embedder: it is reading every rendered frame back from the GPU. The vendor
+glReadPixels delivers 13.7 MB/s [measured 2026-09-19, gl_bench], so one megabyte of changed pixels costs about 73 ms, and the
+frame is only handed to us after the read-back. Since the view was switched to 1.5x hidpi (1920x1080 buffers, for sharpness)
+every changed pixel costs 2.25 times what it did at 1280x720. Second: the remote's key repeats are queued without any back
+pressure, so a held key keeps moving the page after release. Third: the session is ephemeral, so nothing is cached between
+starts. The rest (our framebuffer copy, logging, JS engine tuning) is second-order but cheap to improve.
+
+1. Where a keypress spends its time
+-----------------------------------
+ 1  enigma2 -> plugin. keymap.xml maps the arrow keys with flags "mr" (make AND repeat); every event is one FIFO write
+    "key <name>" (open/write/close). No handling of repeats, no notion of "the page is still busy".            [code]
+ 2  wpe_fb (main loop). ctl_readable -> send_key -> orb_host_key(down) and orb_host_key(up) back to back; the ORB engine runs on
+    the main loop thread and dispatches the DOM event through an idle eval_js into the web process.              [code]
+    Cost not measured; expected to be a few ms unless the main loop is busy blitting (step 5).
+ 3  web process. Key handler, style/layout/paint of the (React) application. The box has 2 cores (ARMv7 1.72 GHz, governor
+    "performance", 1 GB RAM, no swap) shared by this process, its compositor thread (step 4), the network process, wpe_fb,
+    enigma2.                                                                                                      [measured]
+ 4  read-back. AcceleratedSurface renders into a GL target, then one glReadPixels per damaged rect (patch 0006).   [source]
+    13.7 MB/s => 73 ms per MB. At 1920x1080: full frame 8.3 MB = ~600 ms; a 400x250 tile = 0.9 MB = ~66 ms per frame.  [inferred]
+    In the last real ZDF session the frames delivered to wpe_fb averaged 768,213 px = 37% of the view = 3.1 MB = ~220 ms of
+    read-back per frame.                                            [measured: wpe_fb statistics; the time is inferred]
+    It keeps one core at ~100% while it runs (the driver reads uncached memory).                                  [measured]
+ 5  wpe_fb blit. SHM -> shadow canvas (copy) -> conversion to the display's straight alpha (scalar loop, per pixel) ->
+    framebuffer (uncached writes). Average 37.7 ms per frame in the same session. The ack to WebKit is then delayed to a 60 Hz
+    raster (up to 16.7 ms).                                                                                  [measured/code]
+ 6  guard_tick every 10 ms (page flip / overwrite check): 0 flips, 0 repaints in that session = cheap.          [measured]
+ Not on the key path but part of "slow":
+ 7  Cold start. wpe_fb uses webkit_network_session_new_ephemeral(). WebKit creates the network disk cache only for
+    non-ephemeral sessions (NetworkSession.cpp: m_cache = NetworkCache::Cache::open inside "if (!isEphemeral())"), so every
+    start downloads all scripts/styles/images again, and cookies/localStorage do not survive.                      [source]
+ 8  Every top-level navigation runs the polyfill hbbtv.js (609 KB, not minified) and debug.js (all frames, including every
+    player iframe).                                                                                                 [code]
+ 9  debug.js forwards console.*, media events and rejected promises to the embedder through a socket write from the page's
+    main thread; run_wpe.sh sets GST_DEBUG level 4 for four categories; ORB prints every bridge request/response to stderr.
+                                                                                                                    [code]
+    Cost not measured.
+10  The polyfill's bridge requests (Broadcast.*, configuration, tokens) are synchronous round trips from the web process main
+    thread (orb_ext.c); each blocks the page's JavaScript until the engine has answered.                            [code]
+
+2. Checked and NOT a lever
+-------------------------
+ - No non-accelerated mode. WPE 2.54 has no hardware-acceleration-policy setting and no WEBKIT_DISABLE_COMPOSITING_MODE (grep
+   of the tree). The only CPU switch, WEBKIT_SKIA_ENABLE_CPU_RENDERING, paints tiles on the CPU but composition and read-back
+   stay on the GL path; the earlier benchmark showed no difference (docs/NOTES.md, gate 2a).                        [source]
+ - CPU frequency (already the maximum), swap (none), the guard timer (0 repaints), the pixel-format conversion for typical
+   frames (see D1: small compared with step 4).
+ - The average of "1.7 fps" in the wpe_fb statistics is frames over the whole session including idle time: not a frame rate
+   limit and not evidence by itself.
+
+3. Measures, ranked by expected gain per effort
+-----------------------------------------------
+ A. Fewer pixels through the read-back (the dominant term)
+  A1 Choose the render scale for speed. Read-back time is proportional to the pixels: 1.25 -> x0.69, 1.0 -> x0.44 of the current
+     cost. Config only (--hidpi). Sharpness suffers gradually: the embedder then scales up to 1920x1080 with the bilinear
+     scaler (1.2x at hidpi 1.25, 1.5x at 1.0 = the "blurry" look). Needs your eyes; offer a plugin setting "speed / quality".
+  A2 Shorter animations. CSS transitions/animations and smooth scrolling produce many intermediate frames per navigation step,
+     each with its own read-back. Inject a user style sheet with transition-duration/animation-duration of 1 ms (not "none":
+     applications wait for transitionend) and turn smooth scrolling off. Effect depends on how many frames a step makes -
+     Phase 0 counts them. Risk: looks abrupt; some applications may depend on timing -> switchable.
+  A3 Better damage rects in the read-back (patch 0006). One glReadPixels per rect, and fine-grained damage means many small
+     rects; each call may cost a fixed latency on top of the bytes. Merge rects when the bounding box costs less than the extra
+     calls, and read the whole frame above a threshold. Needs the per-call overhead from WEBKIT_SHM_READBACK_LOG (already
+     exists: "[shm-readback] partial|full: N rect(s), M px, T ms"). Small patch, WebKit dev-tree rebuild.
+  A4 Fewer bytes per pixel (e.g. RGBA4444 read-back = half the time). Visible banding and reduced alpha precision; only if
+     A1-A3 are not enough. Medium effort.
+  A5 Zero copy: render into a Dream native pixmap / ION surface (or the framebuffer page itself) so that nothing is read back
+     and the UI copy disappears (the "endgame" in docs/NOTES.md). Large (a WebKit render target for our platform). Decide after
+     a spike (0.5-1 day, outside WebKit, with egl_probe/gl_bench): can an EGL pixmap surface be created and CPU-mapped cached?
+ B. Input
+  B1 Key repeat back pressure. Forward a repeat only when the previous key's frame has been delivered, or coalesce in wpe_fb
+     (of a run of identical queued arrow keys keep the last one); the plugin marks repeats ("keyrepeat"). No WebKit rebuild.
+     Effect: no overshoot after release, no growing lag while a key is held.
+ C. Start-up and load
+  C1 Persistent network session (webkit_network_session_new with data and cache directories on /media/hdd, /tmp as fallback):
+     HTTP cache, cookies, localStorage. Faster repeated starts and screens. Risk: application state now persists (that is what a
+     TV does); add a size limit and a "clear" switch.
+  C2 Quiet by default. debug.js, GST_DEBUG level 4 and ORB's stderr logging only with WPE_DEBUG=1. Fewer synchronous socket
+     writes and string formatting on the page's main thread. Measure with an A/B run.
+  C3 JavaScript engine on two cores: JSC options through the environment (concurrent JIT / compiler threads / GC markers =
+     1, thresholds). Gain unknown; cheap to try.
+  C4 Minify the polyfill (609 KB -> maybe 250 KB): only if Phase 0 shows its parse time matters; needs a minifier in the build.
+  C5 Pre-warmed web process (started hidden at plugin start): the app then appears at once, but costs memory on a 1 GB box.
+ D. Our embedder (UI process) - after A and B
+  D1 Single pass SHM -> framebuffer: drop the shadow canvas copy and the intermediate conversion buffer in normal use, convert
+     straight into the framebuffer in order, skip fully transparent pixels and copy fully opaque ones. Expected 40-60% of the
+     37.7 ms per average frame, more for full frames (2.07 M px extrapolate to ~100 ms). Small/medium; the on-screen check
+     (fb_check) exists.
+  D2 NEON un-premultiply, only if D1 is not enough.
+  D3 Acknowledge the frame at once when the previous one took longer than a 60 Hz period (the pacing timer only helps when
+     frames are faster): up to 16 ms per frame.
+  D4 guard_tick 10 ms -> 40 ms: negligible, only if a profile asks for it.
+
+4. Plan
+-------
+ Phase 0 - measure first (about half a day; nothing here touches the TV screen or WebKit's build)
+   Run headless on the box (no --fb), scripted through the control FIFO, so that results are repeatable:
+   - a script starts wpe_fb --orb with the channel's application URL, with WEBKIT_SHM_READBACK_LOG=1, waits for the load, sends
+     RED, then a fixed key sequence with timestamps (right x6, down x3, ok, back, ...);
+   - add "--trace" to wpe_fb: timestamps for (key line read, engine done, first frame after the key delivered, blit done),
+     plus per frame: damaged px, rects, blit ms;
+   - metrics: key -> first frame (ms), frames and pixels per key, read-back ms and rects per frame, blit ms, CPU per thread
+     (top -H) of web/UI/network processes, bytes fetched and time to first content after RED (cold and warm), memory;
+   - variants (3 runs each): hidpi 1.5 (baseline), 1.25, 1.0; logging on/off; animations shortened.
+   Result: a table in docs/ that confirms or reorders section 3 and gives the baseline for the targets below.
+ Phase 1 - quick wins without a WebKit rebuild (about 1 day): B1, C1, C2, A1 as a plugin setting, A2 as a switch, D3.
+ Phase 2 - embedder (about 1 day): D1 (and D2 if needed).
+ Phase 3 - WebKit patch (1-2 days including rebuilds): A3, perhaps A4. Work in the dev tree only (build.txt, section 6).
+ Phase 4 - only if the targets are missed: the A5 spike, then decide.
+ Proposed targets (to agree first): a focus move is visible within 150 ms (median) at the chosen quality; a page transition
+ shows its first full paint within 500 ms; a held direction key stops within one step of release; RED -> content on a warm
+ start at least 30% faster than the baseline.
+
+5. Risks and notes
+------------------
+ - Anything that changes wpewebkit's do_configure signature deletes the WebKit build directory (build.txt, section 6). Phase 3
+   is source edits in the dev tree only; no recipe or local.conf edits meanwhile. Phases 1-2 (wpe_fb, plugin, run_wpe.sh) do
+   not touch WebKit's build.
+ - The speed/quality trade-off (A1, A2, A4) is a decision for your eyes, not a measurement.
+ - Web content varies from run to run: repeat each measurement and compare like with like.
+ - The video start delay inside the mediathek (a preview took ~5 s to play) is a different topic (decoder hand-over and
+   progressive buffering); Phase 0 records it but this plan does not cover it.
+ - Numbers marked [inferred] (per-frame read-back time, full-frame blit time) come from the measured throughput and the
+   frame statistics; Phase 0 replaces them with measurements.
+
+6. Decisions needed from you
+----------------------------
+ - Default for the render scale: sharp (1.5, slower) or faster (1.25 / 1.0), or a setting in the plugin.
+ - Persist cookies/localStorage/cache across sessions (C1)?
+ - Are shortened animations acceptable as a default, or only as a switch (A2)?
+
+7. Phase 0 outcome (2026-09-20) - see docs/phase0-results.txt
+--------------------------------------------------------------
+Measured, and it changes section 3: read-back is a pure bandwidth cost (~385 ms per Mpx, 10-11 MB/s, no per-rect cost) -> A3 (merge
+rects) is dropped and replaced by "read back only the frame's own damage" (~18%); render scale is the biggest lever (latency 480 /
+319 / 141 ms at 1.5 / 1.25 / 1.0) but the default stays 1.5 (your decision), as a setting; the shortened-animation switch is validated
+(held-key tail 1.6 -> 0.67 s, KIKA background load -70%); there is NO input stall (keys reach wpe_fb in 3-7 ms) - B1 becomes "limit
+the repeat rate to what the frames can carry"; the 150 ms target is not reachable at 1.5x without a faster read-back path, hence
+the recommended spike S1 (a CPU-mappable EGL native pixmap) before phase 3/4.
+Decisions taken: default sharp (1.5x); cookies/storage/cache persist; shortened animations as a switch.
+
+8. Phase 1 outcome (2026-09-20) - see docs/phase1-results.txt
+------------------------------------------------------------
+Built and packaged (plugin 1.0-r1): settings menu (render quality, shorter animations, keep data, debug log, limit repeat, delete
+stored data; /etc/enigma2/wpehbbtv.conf), persistent session (cache <= 75 MB, cookies, localStorage, IndexedDB in /media/hdd/.wpe-data).
+Measured: the cache saves 70% of the launch download and 45% of a revisited page but not the strip, focus moves or BACK, and does not
+change key latency; quiet logging has no measurable speed effect (default quiet for /tmp safety); key repeat limiting REFUTED as a
+speed measure (3 of 10 keys pass, the tail after release is not shorter, pixels not fewer) - kept as an off-by-default switch.
+At 1.5x nothing in phase 1 speeds a focus move; that needs spike S1 (faster frame read-back).
+
+Spike S1 result (2026-09-21, docs/spike-s1-results.txt): a pixmap surface on ION (BMEM) memory + GPU blit of the damage rects + vldmia copy from the
+uncached mapping reads a frame 4.7-6.5x faster than glReadPixels (1920x1080: 1.37 Mpx 401 -> 86 ms, whole frame 598 -> 92 ms; probably >7x with a merged
+blit and two reader threads). A cached mapping (heap 1) reads 100x faster but the CPU cache cannot be invalidated on this kernel. Next: WebKit patch 0013.

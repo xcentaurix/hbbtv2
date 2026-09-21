@@ -1,0 +1,51 @@
+====================================================================================================
+nav_base1.log
+run label=base1 hidpi=1.5 debug=1 fast_anim=0 app=http://hbbtv.zdf.de/zdfstart/index.php
+frames delivered: 121 (121 with a read-back record, 35 full-frame reads); view = 2.07 Mpx
+phase launch  first frame after 469 ms, frames stopped after ~12 s; 10 frames, 17.7 Mpx, read-back 8338 ms (45% of the time); network 2.10 MB
+phase red     first frame after 595 ms, frames stopped after ~4 s; 5 frames, 8.5 Mpx, read-back 3973 ms (38% of the time); network 0.52 MB
+
+single focus moves (key -> first frame at wpe_fb -> last frame):
+   key     latency  settle  queued  frames  Kpx   read-back ms  blit ms  engine ms   (times from the harness's send)
+   right      874    1048       8      3    592        907       2.5      1.0
+   right      224     417       0      3    592        330       2.9      0.6
+   right      398    1380      10      3   3015       1696       9.5      1.4
+   right      266     645       6      3   1411        512       4.2      5.5
+   right      475    1394      10      3   3015       1651       8.8      0.6
+   right      275     635       8      3   1411        501       4.3      4.4
+   down       399    1249       1      3   2391       1498       7.9      0.5
+   down       981     981       0      1   2074        768       4.9      0.6
+   down         -       -       7      0      0          0       0.0      2.2
+   right        -       -       6      0      0          0       0.0      0.9
+   right        -       -       0      0      0          0       0.0      1.0
+   up         808     910       6      3    384        804       1.8      1.1
+   up         892     892       4      1   2074        790       4.8      0.6
+   left       872    1235       4      3   1411       1136       4.4      0.5
+   left       255     618      10      3   1411        498       4.5      4.3
+   median latency 437 ms (p90 892), median settle 946 ms, median frames/step 3.0, median 1411 Kpx/step, median read-back 768 ms/step
+   the key waited a median of 6 ms (max 10) before wpe_fb's main loop read it
+   during the steps the compositor was inside glReadPixels 48% of the time
+
+burst (10 keys, nominal 120 ms apart = a held key): sent 150 ms apart on average (max 170); the keys waited 4 ms (max 15) for wpe_fb; engine per key 2.0 ms
+   7 frames, 6.5 Mpx, read-back 3136 ms; last frame 1762 ms AFTER the last key (backlog: the page keeps moving after release)
+OK (page transition): first frame after 2322 ms, last after 41703 ms; 40 frames, 72.6 Mpx, biggest frame 172% of the view, read-back 24222 ms; read-back 58% of the time
+BACK: first frame after 403 ms, last after 29719 ms; 27 frames, 55.7 Mpx, biggest frame 172% of the view, read-back 15111 ms; read-back 48% of the time
+
+read-back over the run: 170.6 Mpx in 65870 ms = 10.4 MB/s effective
+   model over 121 frames: read-back ms = 7.7 + 386.9 * Mpx + -0.49 * rects   (=> 10.3 MB/s for the pixels; -0.49 ms per rect = per glReadPixels call)
+frame size: median 81.0% of the view, p90 145.5%, max 172.2%; 77 of 121 frames larger than 30%
+embedder blit (canvas copy only in headless mode - no conversion, no framebuffer): 5.75 ms/frame, 3.8 ns/px
+
+main loop: no stalls over 150 ms recorded (--trace watchdog)
+web process threads, CPU ticks from the start of the steps to the end of the run (all web processes; a process started by a
+cross-site navigation counts from its start; 100 ticks = 1 s of one core):
+     4529  eadedCompositor
+      646  WPEWebProcess
+       58  SkiaCPUWorker
+       37  ReceiveQueue
+        7  vc5
+        2  worker0
+   rss wpe_fb.trace VmRSS:	   47232 kB
+   rss WPEWebProcess VmRSS:	   84188 kB
+   rss WPENetworkProce VmRSS:	   26788 kB
+   mem total=1021672 free=45960 cached=615540

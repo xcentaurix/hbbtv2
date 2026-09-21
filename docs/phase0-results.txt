@@ -1,0 +1,91 @@
+Phase 0 results - where the navigation time goes (measured 2026-09-20)
+=====================================================================
+Follows docs/performance-plan.txt. Raw traces and reports: docs/phase0-data/ (nav_<label>.log, compare.txt, report_base1.txt).
+Reproduce: tools/box/nav_bench.sh (one run), tools/box/nav_batch.sh (all variants), tools/box/nav_analyze.py (report/--compare).
+
+1. What was measured
+--------------------
+A scripted session of ZDF's HbbTV application on the DM900, headless (wpe_fb --trace --orb ..., no framebuffer output, live TV not
+touched, media autoplay denied so that a preview does not software-decode on the two cores): launch the channel application; RED
+(opens the tile strip along the bottom of the screen); 15 single focus moves 1.5 s apart (right x6, down x3, right x2, up x2,
+left x2); a burst of 10 "right" ~150 ms apart (what a held key does); OK (opens the KIKA application = a full-screen page with
+heavy imagery, a page transition); BACK. Every key is stamped by the harness when it is sent, every frame is stamped when wpe_fb
+receives it, and WebKit's own read-back log (WEBKIT_SHM_READBACK_LOG) gives the time spent in glReadPixels per frame.
+Runs: base1..3 = the setup as it is today (1.5x hidpi, debug.js and GST debug on); h125 = 1.25x; h10 = 1.0x; fa1 = --fast-anim
+(CSS transitions/animations 1 ms, smooth scrolling off); q0 = quiet (no debug.js, GST_DEBUG=2). One run each except the baseline.
+Limits: the framebuffer conversion and write are NOT part of these runs (headless): from the real session earlier
+(docs/NOTES.md) that costs about 45 ns per pixel on top, i.e. ~65 ms for a 1.4 Mpx frame. Web content changes between runs (the
+launch phase varies from 3 to 12 s until the frames stop); the three baselines show how much.
+
+2. Results (from docs/phase0-data/compare.txt)
+----------------------------------------------
+                                   base1  base2  base3   h125    h10    fa1     q0
+  focus move: key -> first frame ms  437    509    502    319    141    438    383     (median of 13 moves)
+  focus move: p90 ms                 892    831    873    601    176    762    792
+  focus move: until the last frame   946    952    964    828   1237   1025   1005     ms (median)
+  frames / focus move                  3      3      3      3      4      2      3
+  Kpx read back / focus move        1411   1882   1411    983    444   2074   1411
+  read-back ms / focus move          768    727    804    557    224    766    823
+  compositor in glReadPixels, steps  49%    53%    54%    41%    15%    60%    52%
+  held key: motion continues after release  1762   1363   1845    891    366    672   1186 ms
+  OK (new page): first frame ms     2322   2367   2149   1921   1617   2368   2447
+  OK: Mpx read back in 42 s         72.6   76.4   72.3    178   28.6   21.0   76.3
+  OK: compositor in read-back       58%    56%    55%    39%    35%    28%    56%
+  read-back rate MB/s               10.4   10.8   10.8   10.9   10.0   11.0   10.9
+  main loop stalls > 150 ms            0      0      0      0      0      0      0
+  key waited before wpe_fb read it   6 ms   5 ms   7 ms   6 ms   4 ms   6 ms   3 ms
+  (h125 read back more in the OK phase because it delivered more frames in the same time: the page never goes idle.)
+  Network per phase, baseline: launch 1.4-2.1 MB, RED 0.5-0.6 MB, 15 focus moves 1.3-1.5 MB, burst 0.3 MB, OK (KIKA, cold) 5.1-5.7 MB,
+  BACK 2.1 MB (everything is downloaded again).
+
+3. Findings
+-----------
+ 1. Baseline today (1.5x hidpi): a focus move shows its first change after ~480 ms (median of the three baselines: 437/509/502; p90
+    ~870 ms) and its animation is over after ~950 ms; a move is ~3 frames, together ~1.4-1.9 Mpx.
+ 2. glReadPixels is a pure bandwidth cost: 10-11 MB/s in every run, the same for full frames and small ones. A least-squares fit of
+    ms = a + b*Mpx + c*rects gives ~385 ms per Mpx and NO usable per-rect cost (c ~ 0; a = 2-16 ms per frame). Consequences:
+    merging damage rects (plan item A3) would not help; only fewer pixels or a faster path do.
+ 3. The read-back cost scales with the render scale, and so does the latency: 1.5x -> 480 ms, 1.25x -> 319 ms (-34%), 1.0x -> 141 ms
+    (-71%; p90 176 ms). At 1.0x the "last frame" is later (1237 ms) only because the application's own animation then runs at its
+    real speed instead of being stretched by slow frames.
+ 4. There is no input-path problem. Keys reach wpe_fb 3-7 ms after they are sent; the ORB engine takes 0.5-5 ms; the main loop never
+    stalled by more than 150 ms in any run (the stall seen in the first exploratory run was caused by the harness's own "dump" command
+    writing a 6 MB image on the main loop). "Motion continues after release" (1.4-1.8 s at 1.5x) is the page working through the
+    animations of 10 focus moves at ~500 ms per frame, not a queue of keys in the FIFO.
+ 5. --fast-anim: latency unchanged (438 ms; the first frame is a large repaint either way), but it removes work: 2 frames per move
+    instead of 3, the held-key tail 1.6 s -> 0.67 s, and the KIKA page's constant background animation drops from 72 Mpx to 21 Mpx per
+    42 s (compositor busy 57% -> 28% of the time). So KIKA's endless load is mostly CSS animation.
+ 6. The compositor spends 40-60% of the time inside glReadPixels while the user navigates and 55% in KIKA without any key pressed;
+    the box has two cores, so JavaScript, wpe_fb, the network process and enigma2 share what is left.
+ 7. Page transition: ~2.0-2.4 s to the first frame at every scale (1.6 s at 1.0x) - load time (network, JavaScript, layout), not
+    read-back. The application then fetches 5 MB (KIKA) and, going BACK, 2.1 MB again: nothing is cached (ephemeral session).
+ 8. Quiet logging (q0): 383 ms vs ~480 ms is within the run-to-run spread of one sample; the run's RED phase also behaved
+    differently (a background ticker kept the page busy for 90 s). Not confirmed - repeat 2-3 times before deciding.
+ 9. Buffer accumulation: in the first run 18% of all read-back pixels (30 of 169 Mpx) were extra, read because WebKit refreshes each
+    of its SHM buffers with the damage accumulated since that buffer was last used, although wpe_fb only ever copies the frame's own
+    damage rects. Reading only the frame's own damage would save ~18% of the read-back time.
+
+4. What this changes in the plan (performance-plan.txt, section 3)
+------------------------------------------------------------------
+ - A3 (merge damage rects): dropped, no per-call cost exists. Replaced by A3' "read back only the frame's own damage": ~18%, small
+   WebKit patch (dev tree).
+ - A1 (render scale): the biggest lever by far, but you decided to stay sharp (1.5x). It stays as a plugin setting "speed / quality"
+   (1.5 / 1.25 / 1.0), default 1.5.
+ - A2 (animations): validated as a switch (default off, per your decision). Best effect on held keys and on constantly animating pages.
+ - B1 (repeat back pressure): re-scoped. The keys are not queued; what piles up is the page's animation work. Limiting the repeat
+   rate to what the frames can carry (one step per delivered frame) would cut the tail after release; needs a test with the harness.
+ - C1 (persistent session): confirmed useful (2.1 MB re-downloaded on every BACK, 5 MB cold page); the effect on latency is
+   probably modest, measure cold against warm.
+ - C2 (quiet logging): unproven, repeat q0.
+ - D (embedder): the real framebuffer copy is ~8% of a frame's time at most; low priority.
+ - Targets: "focus move visible within 150 ms" is NOT reachable at 1.5x with any of the above: a typical move reads back 1.4 Mpx =
+   ~540 ms at 10.5 MB/s. It needs either a read-back path several times faster, or damage below ~0.4 Mpx. Interim targets for
+   phase 1 at 1.5x: held-key tail <= 700 ms, KIKA idle load <= 30% (with the animation switch), page-back re-download 0 MB (cache).
+
+5. Recommended next step
+------------------------
+ Spike S1 (0.5-1 day, measurements only, outside WebKit): can the GPU frame be read by the CPU much faster than glReadPixels on this
+ box? Candidates: an EGL native-pixmap surface of the Dream driver (dmegl_pixmap_handle: fd / phys / addr / pitch / fourcc) that the
+ CPU can map and read at memory speed; EGLImage + mapped ION buffer; other read-back formats. tools/probes/egl_probe.c and gl_bench.c
+ are the starting points. If any path is >= 4x faster than the 10.5 MB/s, a WebKit render target for it (the "endgame" in NOTES.md)
+ is what lets the application stay sharp and fast; if not, phase 1 (switches, cache, repeat rate) is all there is at 1.5x.
