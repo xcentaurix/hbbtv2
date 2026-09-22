@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>overlay big</title></head>
+<body style="margin:0;background:transparent;overflow:hidden">
+<!-- Test page for wpe_fb --overlay-png growing too big (tools/box/overlay_big_check.sh): a small opaque box at once (a banner), after 3 s the same app
+     fills the whole view with a dark blue background and a big white text (what a colour key does in a real application: its whole user interface). -->
+<div id="a" style="position:absolute;left:100px;top:560px;width:400px;height:100px;background:#c00000;color:#fff;font:32px sans-serif">banner</div>
+<div id="b" style="display:none;position:absolute;left:0;top:0;width:1280px;height:720px;background:#001060;color:#fff;font:96px sans-serif">FULL SCREEN APP</div>
+<script>
+setTimeout(function () { document.getElementById('b').style.display = 'block'; }, 3000);
+</script>
+</body>
+</html>

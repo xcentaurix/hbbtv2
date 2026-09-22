@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>big file</title></head>
+<body style="margin:0;background:#000">
+<!-- Plays the file given as ?src=<url> in a plain <video> and logs its events to the page (tools/box/bigfile_check.sh: is a file bigger than 4 GiB a problem
+     for WebKit's HTTP source on this 32-bit box?) -->
+<video id="v" style="width:640px;height:360px" muted autoplay></video>
+<pre id="log" style="color:#0f0;font:16px monospace"></pre>
+<script>
+var src = new URLSearchParams(location.search).get('src') || '';
+var v = document.getElementById('v'), log = document.getElementById('log');
+function say(t) { log.textContent += t + '\n'; console.log('[bigfile] ' + t); }
+['loadstart', 'loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'seeking', 'seeked', 'error', 'ended'].forEach(function (n) {
+  v.addEventListener(n, function () { say(n + ' t=' + v.currentTime.toFixed(2) + ' dur=' + v.duration + (v.error ? ' err=' + v.error.code + ' ' + (v.error.message || '') : '')); });
+});
+say('src ' + src);
+v.src = src;
+</script>
+</body>
+</html>

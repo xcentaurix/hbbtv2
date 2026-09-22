@@ -132,7 +132,24 @@ if [ -n "$APP" ]; then
 		*) echo "app $APP" > $CTL ;;
 		esac
 	  fi ) &
-	$WPE_FB $HW --orb "$ORB" --fb --fullscreen $OPTS --ctl $CTL --secs 0
+	# WPE_OWNER=<pid> (set by the plugin): enigma2's process. When it is gone (a restart of the GUI, a crash) nobody would ever send "quit": wpe_fb and its
+	# web processes stayed behind (300 MB of RAM, the decoder, the FIFOs). A watchdog asks it to end then (SIGTERM = a clean quit), and makes sure.
+	case "$WPE_OWNER" in '' | *[!0-9]*) WPE_OWNER="" ;; esac
+	$WPE_FB $HW --orb "$ORB" --fb --fullscreen $OPTS --ctl $CTL --secs 0 &
+	WPID=$!
+	if [ -n "$WPE_OWNER" ]; then
+		( while kill -0 "$WPID" 2>/dev/null; do
+			if ! kill -0 "$WPE_OWNER" 2>/dev/null; then
+				kill "$WPID" 2>/dev/null
+				sleep 4
+				kill -9 "$WPID" 2>/dev/null
+				break
+			fi
+			sleep 2
+		done ) &
+	fi
+	wait "$WPID"
+	exit $?
 else
 	exec $WPE_FB $HW --fb --fullscreen $OPTS --ctl $CTL --secs 0 "$1"
 fi

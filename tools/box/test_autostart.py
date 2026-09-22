@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test of the plugin's automatic banner and red button logic with a stubbed enigma2: the whole plugin.py is imported, AutoStart is driven with a fake
 session, a fake timer and the real captured AIT (testdata/ait_zdfhd.txt).   usage: python3 test_autostart.py   (no box needed)"""
-import importlib.util, os, queue, sys, types
+import importlib.util, os, queue, re, sys, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 P = "/home/alpha/openvix/build-enviroment/meta-hbbtv2/recipes-hbbtv/wpe-plugin/files/WPEHbbTV/plugin.py"
@@ -301,6 +301,7 @@ FakeContainer.commands.clear()
 plug.VideoHandover = lambda session: types.SimpleNamespace(acquire=lambda: None, release=lambda: None, active=False)
 banner = plug.WPEScreen(types.SimpleNamespace(open=lambda *a: opened.append(a)), "ait:", True, None, None, False, True)
 banner.start()
+banner_command = FakeContainer.commands[0] if FakeContainer.commands else ""
 check(len(FakeContainer.commands) == 1 and "WPE_OVERLAY=1" in FakeContainer.commands[0] and "WPE_HWVIDEO=1" in FakeContainer.commands[0],
       "the banner with hardware video keeps WPE_OVERLAY=1 (%s)" % FakeContainer.commands)
 FakeContainer.commands.clear()
@@ -327,6 +328,10 @@ screen = plug.WPEScreen.__new__(plug.WPEScreen)
 screen.widgets = {"overlay": FakeComponent()}
 screen.instance = FakeWidget()  # the window of the screen itself
 screen.overlaySeq = 0
+screen.overlayShown, screen.overlayGeometry, screen.overlayFull = False, None, False
+screen.modal = False
+executed = []
+screen.session = types.SimpleNamespace(execDialog=lambda dialog: executed.append(dialog))
 calls = screen.widgets["overlay"].instance.calls
 window = screen.instance.calls
 screen.showOverlay("overlay 1 100 200 640 120 /tmp/wpe_overlay_1.png".split())
@@ -336,13 +341,98 @@ calls.clear()
 window.clear()
 screen.showOverlay("overlay 1 0 0 10 10 /tmp/wpe_overlay_1.png".split())
 check(not calls and not window, "an event that is not newer than the one shown is ignored")
-screen.showOverlay("overlay 3 0 0 0 0 -".split())
-check(calls == [("hide",)] and window == [("resize", ("size", 1, 1))] and screen.overlaySeq == 3, "nothing visible: the widget is hidden, the window shrinks")
+# the same size and place again (an animation frame): only the picture is exchanged - every resize, move and show costs enigma2 surfaces and textures
+screen.showOverlay("overlay 2 100 200 640 120 /tmp/wpe_overlay_2.png".split())
+check(not window and calls == [("setPixmapFromFile", "/tmp/wpe_overlay_2.png")], "same size, same place: only the picture (%s %s)" % (window, calls))
+calls.clear()
+screen.showOverlay("overlay 3 110 200 640 120 /tmp/wpe_overlay_3.png".split())
+check(window == [("move", ("point", 110, 200))] and calls == [("setPixmapFromFile", "/tmp/wpe_overlay_3.png")], "moved: only a move (%s %s)" % (window, calls))
 calls.clear()
 window.clear()
+screen.showOverlay("overlay 4 0 0 0 0 -".split())
+check(calls == [("hide",)] and window == [("resize", ("size", 1, 1))] and screen.overlaySeq == 4, "nothing visible: the widget is hidden, the window shrinks")
+calls.clear()
+window.clear()
+screen.showOverlay("overlay 5 0 0 0 0 -".split())
+check(not calls and not window, "still nothing visible: nothing to do")
 screen.showOverlay("overlay x".split())
-screen.showOverlay("overlay 4 1 2 3".split())
-check(not calls and not window and screen.overlaySeq == 3, "a broken event does nothing")
+screen.showOverlay("overlay 6 1 2 3".split())
+check(not calls and not window and screen.overlaySeq == 5, "a broken event does nothing")
+# the application has grown too big for pictures: wpe_fb draws into the framebuffer now, the picture goes away and later events are ignored
+screen.showOverlay("overlay 7 100 200 640 120 /tmp/wpe_overlay_7.png".split())
+calls.clear()
+window.clear()
+screen.showOverlay("overlay fullscreen".split())
+check(calls == [("hide",)] and window == [("resize", ("size", 1, 1))] and screen.overlayFull, "fullscreen: the picture goes away (%s %s)" % (calls, window))
+check(executed == [screen] and screen.modal and screen.isTmp, "fullscreen: the dialog becomes the executing screen (enigma2's infobar then stays away), closed for good by the session")
+calls.clear()
+window.clear()
+screen.showOverlay("overlay 9 100 200 640 120 /tmp/wpe_overlay_9.png".split())
+check(not calls and not window, "and no picture is shown after that")
+
+# ---- the manual launcher on a session that keeps enigma2's rule: a modal cannot be opened while none is executing, and a closed one leaves only when the
+# session has run its delay timer (StartEnigma.Session.open / close). The launcher closes its "Reading ..." box and then opens the next screen. ----
+class ModalDialog:
+    def __init__(self, session, screen, args, kwargs):
+        self.session, self.screen, self.args, self.kwargs = session, screen, args, kwargs
+
+    def close(self):
+        self.session.close(self)
+
+
+class ModalSession:
+    def __init__(self):
+        self.in_exec = True  # something (the extensions menu) is executing
+        self.opened, self.pending = [], []
+
+    def open(self, screen, *args, **kwargs):
+        if not self.in_exec:
+            raise RuntimeError("[StartEnigma] Error: Modal open are allowed only from a screen which is modal!")
+        dialog = ModalDialog(self, screen, args, kwargs)
+        self.opened.append(dialog)
+        return dialog
+
+    def openWithCallback(self, callback, screen, *args, **kwargs):
+        return self.open(screen, *args, **kwargs)
+
+    def close(self, dialog):
+        self.in_exec = False  # execEnd: nothing executes until the delay timer has popped it
+        self.pending.append(dialog)
+
+    def runDelay(self):
+        if self.pending:
+            self.pending.clear()
+            self.in_exec = True
+
+
+modal = ModalSession()
+state["settings"] = {"WPE_AUTOSTART": "0", "WPE_REDBUTTON": "1"}
+state["channel"] = CHANNEL
+state["readers"].clear()
+launcher = plug.ChannelAppLauncher(modal)
+launcher.start()
+check(len(modal.opened) == 1, "the launcher shows its \"Reading ...\" box")
+state["readers"][0].events.put(("section", pid, section))
+launcher.timer.fire()
+try:
+    modal.runDelay()  # the session's delay timer, before the launcher's own timer for the next screen can fire
+    launcher.afterBox.fire()
+    check(len(modal.opened) == 2 and modal.opened[1].kwargs.get("title", "").startswith("HbbTV applications of"),
+          "after the box is gone the launcher offers the applications of the channel (%d screens)" % len(modal.opened))
+except RuntimeError as error:
+    check(False, "the launcher opened a screen while none was executing: %s" % error)
+
+# ---- leaving: an overlay that never became modal is deleted, one that did is closed as a screen ----
+for modal in (False, True):
+    leaving = plug.WPEScreen(types.SimpleNamespace(open=lambda *a: None, deleteDialog=lambda s: leave_calls.append("deleteDialog")), "ait:", False, None, None, False, True)
+    leave_calls = []
+    leaving.modal = modal
+    leaving.close = lambda: leave_calls.append("close")
+    leaving.finish()
+    check(leave_calls == ["close" if modal else "deleteDialog"], "finish of an overlay (modal=%s): %s" % (modal, leave_calls))
+
+# ---- wpe_fb ends when enigma2 is gone: the owner's pid goes to run_wpe.sh ----
+check(re.search(r"WPE_OWNER=\d+ ", banner_command) is not None, "the environment names the owner process (%s)" % banner_command)
 
 # ---- the settings menu offers both switches ----
 keys = [k for k, *_ in plug.SETTINGS]

@@ -39,7 +39,17 @@ S = "${UNPACKDIR}"
 # r13: the automatic banner really runs in overlay mode (WPE_OVERLAY=1 was lost when WPE_HWVIDEO=1 was set: wpe_fb then wrote the whole frame into the
 # framebuffer and wiped enigma2's infobar after every page flip).
 # r14: the banner's dialog is shown (instantiateDialog() alone leaves it invisible).
-PR = "r14"
+# r15: enigma2 crashed (GPU memory gone, "ION_IOC_ALLOC: Cannot allocate memory", segfault in libv3ddriver): (1) wpe_fb and its web processes stayed behind
+# whenever enigma2 restarted or crashed (WPE_OWNER watchdog in run_wpe.sh), each holding GPU memory - the next enigma2 crashed on its first big texture; (2) an
+# application that grows big (a colour key opens its whole UI) made enigma2 create a texture of 1920x1080 per picture: above 40 % of the screen wpe_fb now
+# switches to the framebuffer (event "overlay fullscreen"); identical pictures are not sent, the picture interval grows with its size, the plugin does not
+# resize/move/show its window when nothing changed.
+# r16: the switch to the framebuffer happens at the first picture that is too big (a static page sends only one).
+# r17: an application that has grown to full screen becomes the executing screen (execDialog), like the red button's: enigma2's infobar then does not show
+# itself on the service restart after a video (five seconds of page flips, each repainted by wpe_fb's guard in a visible sweep).
+# r18: the manual launcher opens the list of applications after its "Reading ..." box has really gone (opening it in the same call raised "Modal open are
+# allowed only from a screen which is modal!", which left enigma2 without an executing screen).
+PR = "r18"
 
 # wpewebkit: the browser engine and its headers; orb: the engine, orb_host.h and the libraries wpe_fb is linked against
 DEPENDS = "wpewebkit orb glib-2.0 libsoup"

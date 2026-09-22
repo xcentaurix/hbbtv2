@@ -1,0 +1,69 @@
+VU+ Ultimo 4K (vuultimo4k, Broadcom 7444S / "dm8000"), OpenViX 6.9, kernel 3.14.28 - vu_probe.sh report, as sent by the user's team member, 2026-09-22.
+Kept for reference; see build.txt section 16 and the memory note "project_hbbtv2_wpe_orb_plan" for the analysis. The probe crashed partway through (fixed in
+a later version of vu_egl_probe.c, not yet re-run on this box) - see the note about eglQueryString(EGL_NO_DISPLAY, ...) below.
+
+=================== who and when
+Tue Sep 22 11:02:58 CEST 2026
+Linux vuultimo4k 3.14.28-1.12 #1 SMP Sat Sep 19 18:39:59 UTC 2026 armv7l GNU/Linux
+ULTIMO4K
+vuultimo4k
+dm8000
+7444s
+Creator = OpenViX
+Version = 6.9
+Build = 003
+Dev = 013
+Type = developer
+Machine = vuultimo4k
+
+=================== cpu and memory
+CPU architecture: 7, ARMv7 Processor rev 3 (v7l), Broadcom STB (Flattened Device Tree)
+cores: 4
+MemTotal: 1615900 kB (DM900: ~1.0 GB; this box has ~1.6 GB)
+
+=================== userland
+Python 3.14.7, GStreamer 1.28.6 (same as DM900)
+dvb sinks present: dvbvideosink (DVBVideoSink, video/mpeg 1/2/4, video/x-h265), dvbaudiosink (DVBAudioSink) - PLi gst-plugin-dvbmediasink, same as DM900
+
+=================== enigma2 and image packages that matter
+enigma2 - 6.9+git30431+0dd16da0+0dd16da6c6-r1
+enigma2-plugin-extensions-webkithbbtv - V1.0-git28+f43fd0f0+f43fd0f196-r0   <- the LEGACY 1.x HbbTV plugin is installed and presumably in active use
+webkit-gtk - r95199-r6   (WebKitGTK ~2011, the old engine)
+webkit-hbbtv-browser-vuultimo4k - 1.0-20181116.r1
+vuplus-webkithbbtv-dumpait - git15+34177490+34177494ba-r0
+vuplus-libgles-vuultimo4k - 17.1-20190424.r0
+libsoup-2.4 - 2.74.3-r0 (note: 2.4, not 3.0 - a future WPE build would need to check this doesn't collide)
+
+=================== graphics stack
+/usr/lib/libEGL.so -> libv3ddriver.so
+/usr/lib/libGLESv2.so -> libv3ddriver.so    (both names point at the SAME vendor driver file, same Broadcom V3D family as the DM900)
+/dev/fb0, /dev/nexus, /dev/vcs* present
+
+fb0: bits_per_pixel 32, stride 7680, virtual_size 1920x2160 (DM900: 1920x3240, i.e. 2 pages here vs 3 there)
+
+=================== video plane and decoders
+/dev/dvb/adapter0/video0, audio0 present, held by enigma2 (pid 2088) - live TV was playing during the probe, as expected
+/proc/stb/vmpeg/0/{dst_left,dst_top,dst_width,dst_height,dst_apply,aspect,...} - SAME names/shape as DM900
+video/aspect 16:9, video/policy panscan, video/videomode 720p50
+
+=================== enigma2 skin resolution and osd
+config.osd.dst_width=720 config.osd.dst_height=576 (SD OSD canvas, scaled up - same convention family as DM900's eVideoWidget positioning)
+
+=================== EGL / GLES offscreen probe (vu_egl_probe) - CRASHED
+>> framebuffer /dev/fb0
+   FB 1920x1080, virtual 1920x2160 (2 pages), yoffset 0, 32 bpp
+   FB layout (offset/length): red 16/8  green 8/8  blue 0/8  alpha 24/8
+   FB is ARGB8888 (B in the lowest byte)          <-- IDENTICAL convention to the DM900 (bcmfb, red16/green8/blue0/alpha24)
+   FB id 'bcmfb', smem_len 22118400, line_length 7680
+   mmap of the framebuffer: ok
+>> dlopen libEGL        (ok, no error printed)
+>> dlopen libGLESv2     (ok, no error printed)
+>> eglQueryString(client extensions)
+!! signal 11 (crash) during: eglQueryString(client extensions)
+SUMMARY: FAILED at 'eglQueryString(client extensions)'
+exit code: 10
+
+FINDING: eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS) - querying "client extensions" before any EGL display has been created (legal EGL 1.5 /
+EGL_EXT_client_extensions, and the first call an EGL_EXT_platform_base-style display chooser makes) SEGFAULTS in this box's libv3ddriver.so. The DM900's
+vendor EGL answers this call fine (see egl_probe / vu_egl_probe results there). vu_egl_probe.c was changed afterwards (2026-09-22) to try this call LAST,
+in a forked child process, so a crash there does not lose the rest of the report; not yet re-run on this VU+ box.

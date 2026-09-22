@@ -316,6 +316,7 @@ class WPEScreen(Screen):
 		self.closing = False
 		self.finished = False
 		self.started = False
+		self.modal = False  # an overlay that has become the executing screen (goModal)
 
 		actions = {name: (lambda name=name: self.sendKey(name)) for name in FORWARDED_KEYS}
 		actions.update({name + "Repeat": (lambda name=name: self.sendKey(name, repeat=True)) for name in REPEAT_KEYS})
@@ -340,6 +341,9 @@ class WPEScreen(Screen):
 		if overlay:
 			self["overlay"] = Pixmap()  # the visible part of the application's frame (showOverlay)
 			self.overlaySeq = 0
+			self.overlayShown = False  # the widget is on the screen
+			self.overlayGeometry = None  # (x, y, w, h) of the picture on the screen; None while the screen is 1x1
+			self.overlayFull = False  # the application grew too big for pictures: wpe_fb draws it into the framebuffer now
 		self.loadingTimer = eTimer()
 		self.loadingTimer.callback.append(self.hideLoading)
 
@@ -370,7 +374,8 @@ class WPEScreen(Screen):
 			self.session.open(MessageBox, f"{RUN} not found", MessageBox.TYPE_ERROR)
 			self.finish()
 			return
-		env = "WPE_OVERLAY=1 " if self.overlay else ""
+		env = "WPE_OWNER=%d " % os.getpid()  # run_wpe.sh ends wpe_fb when this process is gone (enigma2 restarted or crashed): no orphans
+		env += "WPE_OVERLAY=1 " if self.overlay else ""
 		if self.overlay:
 			self["loading"].hide()  # an application that starts by itself on every zap does not announce itself
 			self["overlay"].hide()
@@ -416,7 +421,8 @@ class WPEScreen(Screen):
 
 	def forceKill(self):
 		if self.container.running():
-			self.container.kill()
+			self.container.kill()  # this ends the shell of run_wpe.sh, not wpe_fb (its child): that one is ended by name
+			os.system("killall -9 wpe_fb WPEWebProcess >/dev/null 2>&1")  # (the network process ends with its parent)
 
 	# --- control channel -------------------------------------------------------------------------------------
 
@@ -488,25 +494,58 @@ class WPEScreen(Screen):
 		coordinates; w = 0: nothing is visible) - it is shown by a Pixmap widget of this screen, so enigma2 itself composes it with everything else it
 		draws: no page flips to race, nothing to restore."""
 		try:
+			widget = self["overlay"].instance
+			if widget is None or self.overlayFull:
+				return
+			if words[1] == "fullscreen":
+				# the application has grown too big for pictures (see png_promote in wpe_fb: enigma2 ran out of GPU memory making textures of
+				# them): wpe_fb draws it into the framebuffer from now on; the picture goes away and no more come
+				self.overlayFull = True
+				self.hideOverlayPicture(widget)
+				self.goModal()
+				return
 			seq, x, y, w, h = (int(word) for word in words[1:6])
 			if seq <= self.overlaySeq:
 				return  # an older picture than the one shown
-			widget = self["overlay"].instance
-			if widget is None:
-				return
 			if w <= 0 or h <= 0:
-				widget.hide()
-				self.instance.resize(eSize(1, 1))
+				self.hideOverlayPicture(widget)
 			else:
-				# the screen is just as big as the picture and sits where it goes: enigma2 has to redraw nothing else
-				self.instance.resize(eSize(w, h))
-				self.instance.move(ePoint(x, y))
-				widget.resize(eSize(w, h))
+				# The screen is just as big as the picture and sits where it goes: enigma2 has to redraw nothing else. Only what changed is done:
+				# every resize, move and show of a window costs enigma2 surfaces and textures.
+				geometry = self.overlayGeometry
+				if geometry is None or geometry[2:] != (w, h):
+					self.instance.resize(eSize(w, h))
+					widget.resize(eSize(w, h))
+				if geometry is None or geometry[:2] != (x, y):
+					self.instance.move(ePoint(x, y))
 				widget.setPixmapFromFile(words[6])  # a file wpe_fb has already replaced by a newer one is skipped: the next event shows that one
-				widget.show()
+				if not self.overlayShown:
+					widget.show()
+					self.overlayShown = True
+				self.overlayGeometry = (x, y, w, h)
 			self.overlaySeq = seq
 		except (ValueError, IndexError, RuntimeError) as error:
 			print("[WPEHbbTV] overlay: %s: %s" % (" ".join(words), error))
+
+	def goModal(self):
+		"""An application that fills the screen is a screen of its own, like the one of the red button: this dialog becomes the executing screen.
+		Then enigma2's infobar is not (it shows itself on every zap and service start only while it executes): with the application drawn into the
+		framebuffer, each page flip of enigma2 - and the infobar makes ten a second for five seconds - is repainted by wpe_fb's guard in a sweep that
+		is seen as flicker."""
+		try:
+			self.session.execDialog(self)
+			self.isTmp = True  # the session closes it for good (doClose: cleanup, onClose) when it is closed, as for a screen made with open()
+			self.modal = True
+		except Exception as error:
+			print("[WPEHbbTV] cannot make the application modal: %s" % error)
+
+	def hideOverlayPicture(self, widget):
+		if self.overlayShown:
+			widget.hide()
+			self.overlayShown = False
+		if self.overlayGeometry is not None:
+			self.instance.resize(eSize(1, 1))
+			self.overlayGeometry = None
 
 	# --- the streams of the service --------------------------------------------------------------------------------
 
@@ -610,7 +649,7 @@ class WPEScreen(Screen):
 		self.closeEvents()
 		if self.handover:
 			self.handover.release()  # if media still had the decoder: the live service comes back, its window is fixed later
-		if self.overlay:
+		if self.overlay and not self.modal:
 			self.session.deleteDialog(self)  # it was never opened as the top screen
 		else:
 			self.close()
@@ -885,6 +924,8 @@ class ChannelAppLauncher:
 		self.box = None
 		self.timer = eTimer()
 		self.timer.callback.append(self.poll)
+		self.afterBox = eTimer()
+		self.afterBox.callback.append(self.chosen)
 
 	def start(self):
 		try:
@@ -915,8 +956,12 @@ class ChannelAppLauncher:
 		self.waited += 0.2
 		if self.ait.complete() or self.ait.failed or self.waited >= AIT_TIMEOUT + 1:
 			self.timer.stop()
+			# A modal screen that is closed only leaves when the session has run its delay timer; until then nothing is executing and opening the next
+			# one raises "Modal open are allowed only from a screen which is modal!" - and enigma2 is left with no screen to take keys (it was killed).
+			# So the next screen is opened a moment after the box has been closed, not in the same call.
+			had = self.box is not None
 			self.closeBox()
-			self.chosen()
+			self.afterBox.start(400 if had else 0, True)
 
 	def usableApps(self):
 		return [app for app in self.ait.apps() if app["control"] in (1, 2) and app["http"]]  # AUTOSTART or PRESENT, over HTTP (not a broadcast carousel)

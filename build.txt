@@ -314,3 +314,47 @@ The pieces of the layer (meta-hbbtv2/)
   opkg install --no-install-recommends ./<ipk> and restart the GUI (init 4; sleep 4; init 3, nothing recording).
   Known limits: the PNG covers the bounding box of ALL visible pixels (a sparse page = a big PNG, decoded on enigma2's main thread); ZDF's AIT lists its
   QA/Dev applications in the choice menu of the red button screen; the automatic banner is off by default.
+
+  CRASH 2026-09-21 23:24-23:31 (enigma2 segfault in libv3ddriver.so after "ION_IOC_ALLOC: Cannot allocate memory", three times; plugin r16 fixes it):
+    - GPU (ION) memory ran out. Two causes together: (1) wpe_fb and its web processes were left running whenever enigma2 was restarted or crashed (they are
+      children of the plugin's shell, not of enigma2): each holds GPU memory (3 wpe_fb + 7 web processes = ~300 MB RAM and the GPU buffers), so the next enigma2
+      crashed on its first big texture, and every crash left another one behind; (2) an application that grows big (a colour key opens its user interface) made
+      enigma2 create a 1920x1080 texture (8 MB) for every picture, and it does not free them at that pace (live=33 -> 40 within 4 s in its log).
+    - Fixes: run_wpe.sh gets WPE_OWNER=<enigma2 pid> from the plugin and a watchdog ends wpe_fb (SIGTERM, then -9) when that process is gone (tools/box/
+      watchdog_test.sh); wpe_fb switches from pictures to the framebuffer (png_promote, event "overlay fullscreen", the plugin hides its picture) at the first
+      picture of more than PNG_BIG_PERCENT (40) of the screen - tools/box/overlay_big_check.sh draws on the TV to check it and that the screen is clear
+      afterwards; identical pictures are not sent again, the interval between pictures grows with their size (+1 ms per 2500 px), and the plugin no longer
+      resizes/moves/shows its window when nothing changed. forceKill also kills wpe_fb by name (killing the shell leaves its child).
+    - How it was found: enigma2's crash log ends with the fault and a key press right before (its debug log lists every key: code 401 = blue, 398 = red), and
+      the gTextureManager lines ("+texture ... 1920x1080 live=N") show the growth. After ANY crash or restart check  ps | grep wpe  first.
+
+15. Fixes after the first days of use (plugin r17/r18, WebKit r2) - 2026-09-22
+--------------------------------------------------------------------------
+  - Full-screen application from the banner = modal screen (r17): after a colour key opens the whole user interface, wpe_fb draws into the framebuffer (section 14)
+    and enigma2's infobar popped up with every service restart (after a video: five seconds of page flips, each repainted by the guard in a visible sweep). The
+    overlay dialog now becomes the executing screen (Session.execDialog, isTmp = True so the session closes it for good): the infobar does not show itself then.
+  - The manual launcher (r18): poll() closed its "Reading ..." message box and opened the list of applications in the same call. A closed modal only leaves when
+    the session has run its delay timer; until then nothing executes and Session.open raises "Modal open are allowed only from a screen which is modal!" - and
+    enigma2 was left without a screen to take keys and got killed (Enigma2_crash log: the traceback ends in ChannelAppLauncher.poll). Now a timer (afterBox, 400 ms)
+    opens the next screen. tools/box/test_autostart.py has a session that keeps enigma2's rule (ModalSession) and fails without the fix.
+  - A ZDF film that ended in a black screen (the app's error page, framebuffer 100 % opaque #0d1118): webkitwebsrc turned a 416 into a fatal error. The MP4 has a
+    68-byte 'free' box after its 5 GB 'mdat'; the demuxer asks for the byte at the SIZE of the file, the server answers 416, and playback failed with
+    "Received 416 HTTP error code" after 1.3 s. It is NOT a 4 GiB problem (the size is read correctly). WebKit patch 0014: a 416 for a range that starts at or
+    behind the known size is the end of the stream. Found with tools/box/bigfile_check.sh (headless wpe_fb, GST_DEBUG=webkitwebsrc:6,qtdemux:4; plugin closed) and
+    tools/box/mp4boxes.py (top-level boxes of a remote MP4 by range requests). After the fix: 30 s of playback, 0 errors. libwpewebkit-2.0-1 2.54.0-r2 (PKGR r2).
+    Built without do_configure: the compile ran as a dependency of the plugin package build; the patch is in files/ and in the tarball-only SRC_URI block.
+
+16. VU+ port: first probe report (2026-09-22)
+----------------------------------------------
+  tools/vuplus-probe (vuplus-probe.tar.gz: README.txt, vu_probe.sh, vu_egl_probe) is a read-only, self-contained (dlopen at run time, no vendor headers linked)
+  probe of another box, handed to whoever has one. First report (VU+ Ultimo 4K / vuultimo4k, Broadcom 7444S = "dm8000", OpenViX 6.9): docs/vuplus-report-2026-09-22.txt.
+  GOOD NEWS: framebuffer is byte-identical to the DM900 (bcmfb, ARGB8888, red16/green8/blue0/alpha24); /proc/stb/vmpeg/0/* and /dev/dvb/adapter0/video0+audio0
+  have the same names/shape; GStreamer 1.28.6 with the same dvbvideosink/dvbaudiosink; libEGL.so and libGLESv2.so are both the same libv3ddriver.so (same
+  Broadcom V3D family as the DM900); 4 cores (DM900 has 2), 1.6 GB RAM. The box already runs the LEGACY 1.x HbbTV plugin (enigma2-plugin-extensions-webkithbbtv +
+  webkit-gtk r95199) - keep that in mind for a later test deploy (process names, GStreamer sink contention).
+  LANDMINE FOUND: eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS) (legal EGL 1.5 / EGL_EXT_client_extensions; the first call an EGL_EXT_platform_base-style
+  display chooser makes) SEGFAULTS in this box's libv3ddriver.so - the DM900's vendor EGL answers it fine. The probe caught its own crash (signal handler +
+  20 s alarm) and left the box clean (enigma2 still had the live decoder), but exited before GLES version, colours or read-back speed could be measured.
+  FIX (not yet re-run on the VU+ box): vu_egl_probe.c now tries that one call LAST, in a forked child (try_client_extensions()) - a crash there cannot lose
+  the rest of the report, which by then is already complete and flushed. Sanity-checked on the DM900 (same numbers as before, 12.7 MB/s read-back).
+  NEXT: ask for a second vu_probe.sh run with the updated tar.gz to get GLES version, surfaceless/pbuffer, colour correctness and read-back speed.

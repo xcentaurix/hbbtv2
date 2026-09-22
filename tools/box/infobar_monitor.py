@@ -30,6 +30,8 @@ def stamp():
     return time.strftime("%H:%M:%S", time.localtime(t)) + ".%03d" % (t * 1000 % 1000)
 
 
+# further arguments  <seconds>:<remote command>  press that key (OpenWebif remotecontrol, e.g. 399 = green, 174 = exit) at that time
+keys = sorted((float(a.split(":")[0]), int(a.split(":")[1])) for a in sys.argv[3:] if ":" in a)
 start, zapped, last = time.time(), False, None
 print("%s start, grid of %d samples in the bottom band" % (stamp(), len(grid)))
 while time.time() - start < secs:
@@ -38,6 +40,9 @@ while time.time() - start < secs:
         if zap != "none":
             print("%s ZAP %s" % (stamp(), zap))
             subprocess.Popen(["wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/remotecontrol?command=%d" % (402 if zap == "up" else 403)])
+    while keys and time.time() - start >= keys[0][0]:
+        print("%s KEY %d" % (stamp(), keys[0][1]))
+        subprocess.Popen(["wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/remotecontrol?command=%d" % keys.pop(0)[1]])
     page = yoff()
     now = (page, count(page, grid), count(page, top))
     if now != last:

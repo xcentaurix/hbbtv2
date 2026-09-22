@@ -127,6 +127,10 @@ typedef struct {
     gint64 png_last_us;
     guint64 png_seq;
     gboolean png_empty; /* the last thing sent was "nothing visible" */
+    guint8 *png_last; /* the PNG last written (malloc'd) and where it goes: an identical one is not sent again */
+    size_t png_last_len;
+    int png_last_box[4];
+    long png_area; /* pixels of the last picture: the bigger, the longer until the next */
     guint32 *conv;
     int last_page;
     unsigned painted; /* bit mask of the pages we have painted */
@@ -216,8 +220,6 @@ static void convert_pixels(guint32 *dst, const guint8 *src, int n)
 
 static void fb_save_area(void)
 {
-    if (out.png_prefix)
-        return; /* the framebuffer is not touched */
     fb_read_var();
     out.fb_saved_yoffset = out.vinfo.yoffset;
     out.sx = MAX(0, out.fb_x);
@@ -228,6 +230,8 @@ static void fb_save_area(void)
         out.sw = out.sh = 0;
         return;
     }
+    if (out.png_prefix)
+        return; /* the framebuffer is not touched (unless the application grows too big, png_promote: then the area is cleared at the end, not restored) */
     out.fb_saved = g_malloc((size_t)out.sw * out.sh * 4);
     for (int row = 0; row < out.sh; row++) {
         const guint8 *src = out.fb_map + (size_t)(out.fb_saved_yoffset + out.sy + row) * out.finfo.line_length + (size_t)out.sx * 4;
@@ -239,8 +243,12 @@ static void fb_save_area(void)
 /* --overlay-png (see wpe_fb_png.h): when the frame has changed, the bounding box of its visible pixels is saved as <prefix>_<n>.png and the plugin is told
  * on the event FIFO: "overlay <n> <x> <y> <w> <h> <file>" (screen coordinates), or "overlay <n> 0 0 0 0 -" when nothing is visible. enigma2 decodes the file
  * on its main thread, so at most PNG_INTERVAL_MS between two. The last PNG_KEEP files stay (the plugin may be a little behind), older ones are deleted. */
-#define PNG_INTERVAL_MS 100
+#define PNG_INTERVAL_MS 100 /* plus one millisecond per PNG_PIXELS_PER_MS pixels of the last picture: enigma2 makes a texture of each */
+#define PNG_PIXELS_PER_MS 2500
 #define PNG_KEEP 4
+#define PNG_BIG_PERCENT 40 /* a picture of more than this share of the screen is no banner: png_promote() */
+
+static void png_promote(void);
 
 static void evt_send(const char *line);
 
@@ -276,11 +284,24 @@ static gboolean png_flush(gpointer data)
         if (out.png_empty)
             return G_SOURCE_REMOVE; /* still nothing to see */
         out.png_empty = TRUE;
+        out.png_area = 0;
+        free(out.png_last);
+        out.png_last = NULL;
         snprintf(line, sizeof line, "overlay %llu 0 0 0 0 -\n", (unsigned long long)++out.png_seq);
     } else {
         const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+        out.png_area = (long)w * h;
+        if ((double)w * h * 100 > (double)out.ow * out.oh * PNG_BIG_PERCENT) { /* at once: enigma2 must not make a texture of it */
+            png_promote();
+            return G_SOURCE_REMOVE;
+        }
         size_t len;
         guint8 *png = png_encode_argb(out.conv + (size_t)y0 * out.ow + x0, out.ow, w, h, &len);
+        if (png && out.png_last && len == out.png_last_len && out.png_last_box[0] == x0 && out.png_last_box[1] == y0 && out.png_last_box[2] == w &&
+            out.png_last_box[3] == h && !memcmp(png, out.png_last, len)) {
+            free(png); /* the same picture in the same place: the frame changed somewhere nobody can see */
+            return G_SOURCE_REMOVE;
+        }
         char *path = g_strdup_printf("%s_%llu.png", out.png_prefix, (unsigned long long)(out.png_seq + 1));
         GError *error = NULL;
         if (!png || !g_file_set_contents(path, (const gchar *)png, (gssize)len, &error)) { /* written to a temporary file and renamed: never half a file */
@@ -290,7 +311,13 @@ static gboolean png_flush(gpointer data)
             g_free(path);
             return G_SOURCE_REMOVE;
         }
-        free(png);
+        free(out.png_last);
+        out.png_last = png; /* kept for the comparison with the next */
+        out.png_last_len = len;
+        out.png_last_box[0] = x0;
+        out.png_last_box[1] = y0;
+        out.png_last_box[2] = w;
+        out.png_last_box[3] = h;
         out.png_empty = FALSE;
         snprintf(line, sizeof line, "overlay %llu %d %d %d %d %s\n", (unsigned long long)++out.png_seq, out.fb_x + x0, out.fb_y + y0, w, h, path);
         g_free(path);
@@ -306,8 +333,8 @@ static void png_dirty(void)
 {
     if (out.png_timer)
         return; /* a save is already due: it takes the newest state */
-    const gint64 since = (g_get_monotonic_time() - out.png_last_us) / 1000;
-    out.png_timer = g_timeout_add(since >= PNG_INTERVAL_MS ? 20 : (guint)(PNG_INTERVAL_MS - since), png_flush, NULL); /* 20 ms: the rects of one frame come together */
+    const gint64 since = (g_get_monotonic_time() - out.png_last_us) / 1000, interval = PNG_INTERVAL_MS + out.png_area / PNG_PIXELS_PER_MS;
+    out.png_timer = g_timeout_add(since >= interval ? 20 : (guint)(interval - since), png_flush, NULL); /* 20 ms: the rects of one frame come together */
 }
 
 static void png_cleanup(void)
@@ -395,6 +422,34 @@ static gboolean guard_tick(gpointer data)
 {
     guard_check();
     return G_SOURCE_CONTINUE;
+}
+
+static void out_scale_rect(int rx, int ry, int rw, int rh);
+
+/* The application has grown too big for pictures (a colour key opened its whole user interface): enigma2 makes a texture of every picture, at this size faster
+ * than it frees them, until the GPU memory is gone - and enigma2 crashed in the driver. An application that fills the screen does not need enigma2's own screen
+ * anyway: from here on the frame goes to the framebuffer, with the guard, like the application of the red button. The plugin is told ("overlay fullscreen")
+ * and takes its picture away; what is on the screen is cleared when wpe_fb ends. */
+static void png_promote(void)
+{
+    fprintf(stderr, "overlay: the application has grown too big for a picture: the frame goes to the framebuffer from now on\n");
+    png_cleanup();
+    g_free(out.png_prefix);
+    out.png_prefix = NULL;
+    free(out.png_last);
+    out.png_last = NULL;
+    fb_read_var(); /* the real colour layout again (the pictures were made in ARGB) */
+    if (out.scale != 1.0) {
+        out_scale_rect(0, 0, out.w, out.h); /* converts the whole frame and, with the framebuffer on, draws it */
+    } else {
+        for (int row = 0; row < out.h; row++)
+            convert_pixels(out.conv + (size_t)row * out.w, out.canvas + (size_t)row * out.w * 4, out.w);
+        fb_paint_all();
+    }
+    out.guard = TRUE;
+    out.last_page = out.vinfo.yoffset / out.vinfo.yres;
+    g_timeout_add(10, guard_tick, NULL);
+    evt_send("overlay fullscreen\n");
 }
 
 /* Hand the screen back: on every page we painted and that still holds our frame, put back the pixels that were

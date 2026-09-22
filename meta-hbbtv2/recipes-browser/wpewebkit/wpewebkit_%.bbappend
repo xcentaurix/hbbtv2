@@ -51,6 +51,7 @@ python () {
         file://0011-GStreamer-Dreambox-hole-punch-scale.patch \
         file://0012-GStreamer-Dreambox-hole-punch-dry-run.patch \
         file://0013-WPE-SHM-fast-read-back-through-an-ION-pixmap-surface-on-Dreambox.patch \
+        file://0014-WebKitWebSrc-a-416-at-the-end-of-the-file-is-end-of-stream.patch \
     ')
 }
 # 0003-0006: vendor EGL (Broadcom V3D) without GBM/Mesa surfaceless: the default EGL display and the WPE platform fixes it needs.
@@ -58,13 +59,15 @@ python () {
 # 0008-0012: <video> plays on the hardware video plane (hole punch quirk for dvbvideosink/dvbaudiosink), decoder position and seeking,
 #            decoder hand-over with the embedder, view scale, dry run for tests.
 # 0013: frame read-back through an ION pixmap surface (4-9x faster than glReadPixels on the Dreambox V3D driver); Skia's readPixels() is the fallback.
+# 0014: webkitwebsrc: a 416 for a range that starts at the end of the file is the end of the stream, not an error (an MP4 with a small box after a big
+#       'mdat' made the demuxer ask for the byte at the size of the file: "Received 416 HTTP error code", the whole playback failed).
 
 # Vendor eglplatform.h falls back to X11 types unless BROADCOM_PLATFORM is set
 # (see the libepoxy bbappend).
 CFLAGS:append = " -DBROADCOM_PLATFORM"
 CXXFLAGS:append = " -DBROADCOM_PLATFORM"
 
-# The build is reproducible as it stands: the tarball plus the recipe's own two patches plus the thirteen above, in this order.
+# The build is reproducible as it stands: the tarball plus the recipe's own two patches plus the fourteen above, in this order.
 #
 # Development mode (incremental rebuilds): OE wipes the build directory whenever SRC_URI changes, and every source fix would cost a
 # clean ~2h rebuild. Instead, build from a persistent, already-patched tree with externalsrc, in local.conf like the other packages:
@@ -78,4 +81,5 @@ PARALLEL_MAKE = "-j 6 -k 0"
 
 # r1: patch 0013 (fast frame read-back). A new package revision so that opkg upgrades the package on the box. PKGR, not PR: PR reaches
 # do_configure, whose re-run would delete the development build directory (see above); PKGR only reaches the packaging tasks.
-PKGR = "r1"
+# r2: patch 0014 (416 at the end of the file).
+PKGR = "r2"
