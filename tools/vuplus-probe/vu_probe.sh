@@ -49,7 +49,9 @@ for l in /usr/lib/libEGL.so.1 /usr/lib/libGLESv2.so.2; do echo "-- ldd $l"; ldd 
 ls -l /dev/fb* /dev/dri /dev/ion /dev/nexus* /dev/mali* /dev/galcore /dev/vc* 2>/dev/null
 cat /proc/fb 2>/dev/null
 for f in /sys/class/graphics/fb0/*; do [ -f "$f" ] && echo "$f: $(head -c 100 "$f" 2>/dev/null | tr '\n' ' ')"; done 2>/dev/null
-ls /usr/lib/libEGL* >/dev/null 2>&1 || echo "(no /usr/lib/libEGL*)"
+ls /usr/lib/libEGL* >/dev/null 2>&1 || echo "(no /usr/lib/libEGL* - some Nexus-based images expose EGL/GLES through libnxpl.so or bundle it directly in the GPU driver .so instead of a libEGL.so symlink)"
+echo "-- every libEGL*/libGLESv2*/libnxpl*/libv3d* anywhere on the box (not just /usr/lib; up to 60 s)"
+timeout 60 find / -xdev -type f \( -iname "libEGL*" -o -iname "libGLESv2*" -o -iname "libnxpl*" -o -iname "libv3d*" -o -iname "libnexus*" \) 2>/dev/null | while read -r f; do echo "$f  ($(wc -c <"$f" 2>/dev/null) bytes)"; done
 
 sect "video plane and decoders (the place of the live picture)"
 ls /dev/dvb/adapter0 2>/dev/null | tr '\n' ' '; echo
@@ -66,11 +68,63 @@ grep -E "config.osd.(alpha|dst_|xres|yres|resolution)|config.av.osd_alpha|config
 cat /proc/stb/fb/dst_width /proc/stb/fb/dst_height 2>/dev/null
 
 sect "EGL / GLES offscreen probe (vu_egl_probe)"
+chmod +x "$HERE/vu_egl_probe" 2>/dev/null  # tar does not always preserve the executable bit; make sure of it ourselves
 if [ -x "$HERE/vu_egl_probe" ]; then
 	"$HERE/vu_egl_probe" 2>&1
 	echo "exit code: $?"
 else
-	echo "vu_egl_probe not found or not executable in $HERE (chmod +x vu_egl_probe)"
+	echo "vu_egl_probe not found (or chmod +x failed) in $HERE"
+fi
+
+sect "Nexus client-join symbols (dynsym_dump - no nm/readelf needed on the box)"
+# Confirmed from Broadcom's own nxclient.h/nexus_platform_client.h (see hbbtv2/headers/gb-nexus-headers): a process must call
+# NxClient_Join() (modern, joins both the nexus driver AND the server app over IPC) or the older NEXUS_Platform_Join() /
+# NEXUS_Platform_AuthenticatedJoin(NULL) (driver-only) BEFORE touching any Nexus-backed resource - and EGL on this platform is
+# layered on Nexus surface/display objects (EGLNativeDisplayType is just an opaque void* on BROADCOM_PLATFORM, so EGL itself
+# gives no clue). A second process calling eglInitialize/eglQueryString without ever joining would dereference NULL exactly like
+# the crash reports show. These symbols could live in libnexus*.so, or be statically linked into the vendor EGL/GLES driver
+# itself (libv3ddriver.so, libnxpl.so, ...) - so check every EGL-stack library found, not just libnexus*.
+chmod +x "$HERE/dynsym_dump" 2>/dev/null
+if [ -x "$HERE/dynsym_dump" ]; then
+	CANDIDATE_LIBS=$(find /usr/lib /lib -maxdepth 2 \( -iname "libnexus*.so*" -o -iname "libv3d*.so*" -o -iname "libnxpl*.so*" \
+		-o -iname "libnxclient*.so*" -o -iname "libEGL*.so*" -o -iname "libGLESv2*.so*" -o -iname "libbrcm*.so*" \) 2>/dev/null | sort -u)
+	if [ -n "$CANDIDATE_LIBS" ]; then
+		echo "$CANDIDATE_LIBS" | while read -r LIB; do
+			echo "-- $LIB, symbols containing 'join' (NxClient_Join / NEXUS_Platform_Join / NEXUS_Platform_AuthenticatedJoin)"
+			"$HERE/dynsym_dump" "$LIB" join 2>&1
+			echo "-- same file, symbols containing 'init' (NEXUS_Platform_Init, NxClient init helpers)"
+			"$HERE/dynsym_dump" "$LIB" init 2>&1
+			echo "-- same file, symbols containing 'nxclient' or 'client'"
+			"$HERE/dynsym_dump" "$LIB" client 2>&1
+			echo "-- same file, symbols containing 'begl' (BEGL_RegisterMemoryInterface/DisplayInterface/SchedInterface - the vendor's own"
+			echo "   EGL/GLES <-> Nexus platform-interface registration API, see hbbtv2/headers/gb-nexus-headers/EGL/begl_*platform.h and"
+			echo "   private_nexus.h: report(7) showed NxClient_Join() succeeding but eglInitialize() still asserting 'Memory interface not"
+			echo "   registered' at gmem_abstract.c:132 - begl_memplatform.h declares 'extern void BEGL_RegisterMemoryInterface(BEGL_MemoryInterface*)',"
+			echo "   which matches that message exactly. If the driver EXPORTS this symbol (and its Display/Sched counterparts), the app is"
+			echo "   expected to build the interface struct and call it; if not exported, it's implemented elsewhere (or by the app itself,"
+			echo "   which would need Broadcom's own gmem_abstract.c - not present in the header dump we have - to do correctly)."
+			"$HERE/dynsym_dump" "$LIB" begl 2>&1
+			case "$LIB" in
+			*libnxpl*)
+				echo "-- $LIB, ALL symbols, unfiltered (report(9): libnxpl.so IMPORTS (undefined, value=0) BEGL_RegisterMemoryInterface/DisplayInterface/"
+				echo "   SchedInterface from libv3ddriver.so, which exports real (non-zero) implementations of all three - i.e. libnxpl.so itself is"
+				echo "   Broadcom's own working glue that builds a Nexus-backed BEGL_MemoryInterface and calls BEGL_RegisterMemoryInterface for you,"
+				echo "   so the app almost certainly just has to call ONE libnxpl.so entry point, not implement gmem_abstract.c from scratch. The only"
+				echo "   DEFINED (real) symbols found there so far via the 'client' filter are NXPL_CreateVideoWindowClient/NXPL_ReleaseVideoWindowClient/"
+				echo "   NXPL_GetClientID - those look like the VIDEO-DECODE overlay path (parallel to this project's own dvbvideosink hole-punch quirk"
+				echo "   on the Dreambox side), not the GLES/EGL graphics path this probe needs. libnxpl.so only has 153 dynamic symbols total (small,"
+				echo "   cheap to dump whole) - this full, unfiltered list is to find whatever top-level 'create/init a GLES platform' entry point it"
+				echo "   exports that isn't caught by the join/init/client/begl substring filters above (e.g. a name containing neither 'client' nor"
+				echo "   any of the other filter words)."
+				"$HERE/dynsym_dump" "$LIB" 2>&1
+				;;
+			esac
+		done
+	else
+		echo "no libnexus*/libv3d*/libnxpl*/libnxclient*/libEGL*/libGLESv2*/libbrcm* found under /usr/lib or /lib"
+	fi
+else
+	echo "dynsym_dump not found (or chmod +x failed) in $HERE"
 fi
 
 sect "end"

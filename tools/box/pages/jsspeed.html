@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>js speed</title></head>
+<body style="margin:0;background:#000;color:#0f0;font:20px monospace">
+<!-- A plain JS interpreter speed probe (tools/box/jsspeed_check.sh): no DOM/network, so it isolates the JSC interpreter itself (CLoop vs native LLInt vs
+     JIT) from everything else. Three workloads: tight integer loop (arithmetic/branch-heavy, closest to bytecode dispatch cost), string building (object/
+     GC-heavy), and a tiny recursive function (call-overhead-heavy) - together a reasonable cross-section of what a big JS bundle like ORB's dash.js
+     player (832 KB) actually does while parsing/initialising. Prints one line per workload plus a combined score; also sets document.title so a --dump
+     capture (if the page result can't be read from the console) still shows the number. -->
+<pre id="out"></pre>
+<script>
+function now() { return performance.now(); }
+function bench(name, fn) {
+  var t0 = now();
+  var r = fn();
+  var ms = now() - t0;
+  document.getElementById('out').textContent += name + ': ' + ms.toFixed(1) + ' ms (check ' + r + ')\n';
+  console.log('[jsspeed] ' + name + ': ' + ms.toFixed(1) + ' ms');
+  return ms;
+}
+function fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
+var total = 0;
+total += bench('loop 30M', function () {
+  var s = 0;
+  for (var i = 0; i < 30000000; i++) { s += (i * 3) % 7; if (s > 1e9) s -= 1e9; }
+  return s;
+});
+total += bench('strings 200k', function () {
+  var a = [];
+  for (var i = 0; i < 200000; i++) a.push('x' + i + '-' + (i * i));
+  return a.join('').length;
+});
+total += bench('fib(29) x3', function () {
+  var s = 0;
+  for (var i = 0; i < 3; i++) s += fib(29);
+  return s;
+});
+document.getElementById('out').textContent += 'TOTAL: ' + total.toFixed(1) + ' ms\n';
+console.log('[jsspeed] TOTAL: ' + total.toFixed(1) + ' ms');
+document.title = 'jsspeed ' + total.toFixed(1);
+</script>
+</body>
+</html>

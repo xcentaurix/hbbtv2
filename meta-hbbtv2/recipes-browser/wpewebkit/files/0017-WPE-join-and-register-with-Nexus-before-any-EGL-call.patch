@@ -1,0 +1,123 @@
+From: xcentaurix
+Subject: [PATCH] WPE: join and register with Nexus before any EGL call, on Nexus-based Broadcom boxes
+
+On a Nexus-based Broadcom box (GigaBlue gbquad4kpro confirmed 2026-09-23; likely other Nexus-middleware boxes too, e.g. VU+ Ultimo 4K - same "Memory
+interface not registered" signature, not yet retested with this exact fix), eglInitialize() aborts:
+
+  ASSERT at libs/platform/bcg_abstract/gmem_abstract.c:132:gmem_init
+  Memory interface not registered
+
+Root-caused with a standalone diagnostic tool (tools/vuplus-probe in the hbbtv2 repo; see vu_egl_probe.c and project memory
+project_hbbtv2_wpe_orb_plan.md for the full trace through dynsym_dump symbol listings and Broadcom's own header dump) rather than guessed at:
+
+ - NxClient_Join() (libnxclient.so) - the general Nexus client/server IPC join - is necessary but, confirmed by testing, NOT sufficient alone: it
+   succeeds (returns 0) but eglInitialize() still asserts identically afterward.
+ - NXPL_RegisterNexusDisplayPlatform() (libnxpl.so) is the missing piece. Broadcom's own header (hbbtv2/headers/gb-nexus-headers/default_nexus.h,
+   "Default Nexus platform API for EGL driver") declares it and documents it as: "Register a display for exclusive use ... It will register its own
+   memory, h/w and display APIs suitable for basic exclusive mode rendering on a Nexus display." - matching the assertion text exactly.
+ - In multi-process client mode (the normal case here, not SINGLE_PROCESS) NEXUS_DISPLAYHANDLE is just void*, not a real handle from the
+   single-process-only NEXUS_Display_Open() - passing NULL works and was verified end-to-end: eglInitialize() succeeds (EGL 1.5) immediately after
+   this call, in an isolated test tool, with the live TV picture confirmed unaffected during the test.
+
+Fix: PlatformDisplayDefault::create() - the one place this fork's EGL bring-up goes through for every board, Nexus-based or not - now does the
+join+register sequence once per process before its existing eglGetDisplay(EGL_DEFAULT_DISPLAY) call, and unregisters in the destructor. Pure runtime
+detection via dlopen/dlsym: no Nexus SDK headers and no link-time dependency on libnxclient.so/libnxpl.so, so this is a true no-op - confirmed via a
+regression test on the DM900 that produces zero related log output - on any platform without them (this fork's other target, the DM900's
+libvc5dream stack, has no Nexus/NxClient/NXPL at all).
+
+---
+diff --git a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
+index 72b3bf9d..c50da7ea 100644
+--- a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
++++ b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
+@@ -31,10 +31,73 @@
+ #include "GLContext.h"
+ #include <epoxy/egl.h>
+
++#if PLATFORM(WPE)
++#include <cstring>
++#include <dlfcn.h>
++#endif
++
+ namespace WebCore {
+
++#if PLATFORM(WPE)
++// Nexus-based Broadcom boxes (GigaBlue gbquad4kpro confirmed 2026-09-23; likely other Nexus-middleware boxes too, e.g. VU+
++// Ultimo 4K - same "Memory interface not registered" signature, not yet retested with this exact fix) need two calls before
++// any EGL call can succeed: NxClient_Join() (join the Nexus client/server IPC bus - necessary but, confirmed by testing, NOT
++// sufficient alone) and NXPL_RegisterNexusDisplayPlatform() (libnxpl.so; its own doc comment says it "registers its own
++// memory, h/w and display APIs" for the display - the literal, exact cause of "Memory interface not registered" at
++// gmem_abstract.c:132 otherwise). Passing NULL for the display argument works: in multi-process client mode
++// NEXUS_DISPLAYHANDLE is just void* (not a real handle from the single-process-only NEXUS_Display_Open), and this box's
++// vendor driver resolves it against the already-joined default display.
++//
++// Pure runtime detection via dlopen/dlsym, no Nexus SDK headers and no link-time dependency on libnxclient.so/libnxpl.so, so
++// this safely no-ops on every platform that doesn't have them (e.g. the DM900's libvc5dream stack, which has no
++// Nexus/NxClient/NXPL at all). Root-caused and verified end-to-end (including that the live picture is unaffected) via
++// tools/vuplus-probe in the hbbtv2 repo before being written here - see that tool's vu_egl_probe.c for the exact sequence
++// this mirrors, and project memory (project_hbbtv2_wpe_orb_plan.md) for the full trace through Broadcom's own header dump
++// that found NXPL_RegisterNexusDisplayPlatform in the first place.
++static void* s_nxplPlatformHandle;
++static void (*s_nxplUnregisterDisplayPlatform)(void*);
++
++static void ensureNexusPlatformJoined()
++{
++    static bool attempted = false;
++    if (attempted)
++        return;
++    attempted = true;
++
++    if (void* nxclient = dlopen("libnxclient.so", RTLD_NOW | RTLD_GLOBAL)) {
++        auto getDefaultJoinSettings = reinterpret_cast<void (*)(void*)>(dlsym(nxclient, "NxClient_GetDefaultJoinSettings"));
++        auto join = reinterpret_cast<int (*)(const void*)>(dlsym(nxclient, "NxClient_Join"));
++        if (getDefaultJoinSettings && join) {
++            // The real NxClient_JoinSettings layout needs the proprietary Nexus SDK headers, not available at build time here.
++            // Safe without them: GetDefaultJoinSettings() only WRITES into this buffer and Join() only reads back what was
++            // just written, so any buffer at least as large as the real struct works (known Broadcom SDKs: well under 200
++            // bytes; 1024 is generous headroom).
++            unsigned char joinSettings[1024];
++            memset(joinSettings, 0, sizeof(joinSettings));
++            getDefaultJoinSettings(joinSettings);
++            int rc = join(joinSettings);
++            WTFLogAlways("NxClient_Join() returned %d (0 = NEXUS_SUCCESS)", rc);
++        }
++    }
++
++    if (void* nxpl = dlopen("libnxpl.so", RTLD_NOW | RTLD_GLOBAL)) {
++        auto registerDisplayPlatform = reinterpret_cast<void (*)(void**, void*)>(dlsym(nxpl, "NXPL_RegisterNexusDisplayPlatform"));
++        s_nxplUnregisterDisplayPlatform = reinterpret_cast<void (*)(void*)>(dlsym(nxpl, "NXPL_UnregisterNexusDisplayPlatform"));
++        if (registerDisplayPlatform && s_nxplUnregisterDisplayPlatform) {
++            registerDisplayPlatform(&s_nxplPlatformHandle, nullptr);
++            WTFLogAlways("NXPL_RegisterNexusDisplayPlatform() -> handle=%p", s_nxplPlatformHandle);
++        } else
++            s_nxplUnregisterDisplayPlatform = nullptr;
++    }
++}
++#endif // PLATFORM(WPE)
++
+ std::unique_ptr<PlatformDisplayDefault> PlatformDisplayDefault::create()
+ {
++#if PLATFORM(WPE)
++    ensureNexusPlatformJoined();
++#endif
++
+     auto glDisplay = GLDisplay::create(eglGetDisplay(EGL_DEFAULT_DISPLAY));
+     if (!glDisplay) {
+         WTFLogAlways("Could not create default EGL display: %s. Aborting...", GLContext::lastErrorString());
+@@ -53,7 +116,15 @@ PlatformDisplayDefault::PlatformDisplayDefault(Ref<GLDisplay>&& glDisplay)
+ #endif
+ }
+
+-PlatformDisplayDefault::~PlatformDisplayDefault() = default;
++PlatformDisplayDefault::~PlatformDisplayDefault()
++{
++#if PLATFORM(WPE)
++    if (s_nxplUnregisterDisplayPlatform && s_nxplPlatformHandle) {
++        s_nxplUnregisterDisplayPlatform(s_nxplPlatformHandle);
++        s_nxplPlatformHandle = nullptr;
++    }
++#endif
++}
+
+ } // namespace WebCore
+

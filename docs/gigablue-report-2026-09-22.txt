@@ -1,0 +1,36 @@
+GigaBlue Quad 4K Pro (gbquad4kpro, Broadcom BCM7252S - the SAME SoC as the DM900), OpenViX 6.9, kernel 4.1.20 - vu_probe.sh reports, 2026-09-22.
+Two runs: the first (12:57) used the pre-fix probe and could not run vu_egl_probe at all; the second (14:12), with the fixed vuplus-probe.tar.gz, got a
+real, informative result. See build.txt section 16 and the memory note "project_hbbtv2_wpe_orb_plan" for the analysis.
+
+=================== who and when
+gbquad4kpro, chipset bcm7252s (== DM900's BCM7252S), OpenViX 6.9, kernel 4.1.20-1.9 (DM900: 3.14). 2 cores, 2.9 GB RAM + swap.
+
+=================== enigma2 and image packages that matter
+enigma2-plugin-extensions-hbbtv-webkit + webkit-hbbtv-plugin, both "2.0-r0-..." - already installed, webkit-classic underneath (legacy WebKit1 engine
+most likely) - not investigated further, flagged to the user, not assumed either way.
+
+=================== graphics stack (run 2, with the fixed wide search)
+NO libEGL.so or libGLESv2.so anywhere on the box at all (confirmed by a whole-disk find, not just guessing): only libv3ddriver.so (1.1 MB, same file
+name as the VU+ Ultimo's driver - same V3D GPU family), libnexus.so (7.3 MB, Broadcom Nexus middleware) and libnxpl.so (25 KB, "Nexus Platform Layer"),
+each present twice: /usr/lib/ and /usr/share/platform/ (identical byte sizes - almost certainly the same files, one a copy or bind-mount of the other).
+fb0: bcmfb, 1920x1080 (2160p50 - "4K Pro"), 32bpp, stride 7680, virtual 1920x2160 (2 pages) - ARGB8888 confirmed this run (see below): red16/green8/
+blue0/alpha24, THE SAME CHANNEL LAYOUT AS THE DM900 AND THE VU+ ULTIMO - three for three now.
+
+=================== EGL / GLES offscreen probe - RAN, WITH A DIFFERENT AND MORE INFORMATIVE FAILURE THAN THE VU+ ULTIMO
+dlopen("libEGL.so.1")/("libEGL.so"): both "No such file" (confirms the finding above). dlopen("libv3ddriver.so") for both EGL and GLESv2: ok (the widened
+fallback worked as designed). eglGetPlatformDisplayEXT: available. eglGetDisplay(EGL_DEFAULT_DISPLAY): a real display handle (0x1).
+eglInitialize: ABORTS (SIGABRT, not a silent segfault) with a clean, informative Broadcom assertion:
+    ASSERT at libs/platform/bcg_abstract/gmem_abstract.c:132:gmem_init
+    Memory interface not registered
+DIAGNOSIS: GigaBlue's Broadcom stack is Nexus-based - a CLIENT/SERVER GPU architecture, not a single-process driver like the DM900's. A privileged
+Nexus server (almost certainly part of enigma2's own process, or a helper it starts) owns and initializes the GPU memory heaps at boot. Any OTHER
+process - including this probe - must explicitly JOIN that already-running Nexus instance through libnexus.so's own API (the classic pattern on Nexus-
+based STBs is NEXUS_Platform_Join() or equivalent) before EGL can initialize; without that, the V3D driver's memory allocator ("bcg_abstract" gmem) has
+no backend registered and aborts, exactly what happened. This is NOT a crash to route around like the VU+ Ultimo's landmine - it is a genuine extra
+initialization step a real embedder on this box would need: learn and call Nexus's join API before any EGL call. No public documentation exists for the
+exact function (Broadcom Nexus SDK is licensee-only/NDA'd); a forum search for prior enigma2-community reverse-engineering of this came up empty.
+The probe's own crash-safety worked as designed here too: enigma2 (pid 13401) still held the live decoder normally after the probe aborted; nothing else
+on the box was disturbed.
+
+NEXT (not started, offered to the user): a purely read-only addition to the probe that parses libnexus.so's own ELF dynamic symbol table itself (the box
+has no nm/ldd/readelf at all to lean on) to see which join/init-sounding functions are actually exported, before attempting to call any of them.

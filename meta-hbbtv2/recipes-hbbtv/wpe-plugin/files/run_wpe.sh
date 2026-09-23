@@ -57,7 +57,7 @@ export WEBKIT_DISABLE_GL_FENCE=1
 # media pipeline diagnostics into the log (/tmp/wpe_fb.log): player, quirks and the dvb sinks; the page's own console/media events
 # come from debug.js (in the ORB directory) as "[page] ..." lines
 if [ "$WPE_DEBUG" = 1 ]; then
-	export GST_DEBUG="${GST_DEBUG:-2,webkitmediaplayer:4,webkitquirks:4,dvbvideosink:4,dvbaudiosink:4}"
+	export GST_DEBUG="${GST_DEBUG:-2,webkitmediaplayer:4,webkitquirks:4,dvbvideosink:4,dvbaudiosink:4,webkitwebsrc:5}"
 else
 	export GST_DEBUG="${GST_DEBUG:-2}"
 fi

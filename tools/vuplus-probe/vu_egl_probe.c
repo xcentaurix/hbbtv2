@@ -27,6 +27,7 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 typedef void *EGLDisplay, *EGLConfig, *EGLContext, *EGLSurface;
@@ -81,6 +82,7 @@ typedef float GLfloat;
 
 static EGLDisplay (*eglGetDisplay)(void *);
 static EGLDisplay (*eglGetPlatformDisplayEXT)(GLenum, void *, const EGLint *);
+static EGLDisplay (*eglGetPlatformDisplay)(GLenum, void *, const EGLint *); /* EGL 1.5 core, no "EXT" suffix */
 static void *(*eglGetProcAddress)(const char *);
 static int (*eglInitialize)(EGLDisplay, EGLint *, EGLint *);
 static const char *(*eglQueryString)(EGLDisplay, EGLint);
@@ -123,6 +125,9 @@ static void (*glDrawArrays)(GLenum, GLint, GLsizei);
 static const char *step_name = "start";
 static char step_buf[200];
 
+static int try_display_strategies(void);
+static void try_register_display_platform(void);
+
 static void step(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void step(const char *fmt, ...)
 {
@@ -135,12 +140,44 @@ static void step(const char *fmt, ...)
     fflush(stdout);
 }
 
-static void on_signal(int sig)
+/* SA_SIGINFO variant: on SIGSEGV/SIGBUS/SIGILL, ucontext_t carries the ARM registers at the moment of the fault (Linux ARM's mcontext_t = struct
+ * sigcontext, arm_* fields). This is the same information a debugger's "info registers" gives after a crash, without needing a debugger attached -
+ * useful here because these reports come from a team member's box, not one this session has direct access to. */
+static void on_signal(int sig, siginfo_t *info, void *context)
 {
-    printf("\n!! signal %d (%s) during: %s\n", sig, sig == SIGALRM ? "no answer within 20 s" : sig == SIGSEGV ? "crash" : "abort", step_name);
+    printf("\n!! signal %d (%s) during: %s\n", sig, sig == SIGALRM ? "no answer within 20 s" : sig == SIGSEGV ? "crash (SIGSEGV)" :
+        sig == SIGBUS ? "crash (SIGBUS)" : sig == SIGILL ? "crash (SIGILL)" : "abort", step_name);
+#if defined(__arm__) && defined(__linux__)
+    if (context && (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL)) {
+        ucontext_t *uc = (ucontext_t *)context;
+        struct sigcontext *mc = (struct sigcontext *)&uc->uc_mcontext;
+        printf("   fault address: %p\n", info ? info->si_addr : NULL);
+        printf("   pc=%08lx lr=%08lx sp=%08lx cpsr=%08lx\n", mc->arm_pc, mc->arm_lr, mc->arm_sp, mc->arm_cpsr);
+        printf("   r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n", mc->arm_r0, mc->arm_r1, mc->arm_r2, mc->arm_r3, mc->arm_r4, mc->arm_r5);
+        printf("   r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n", mc->arm_r6, mc->arm_r7, mc->arm_r8, mc->arm_r9, mc->arm_r10,
+            mc->arm_fp, mc->arm_ip);
+    }
+#else
+    (void)info;
+    (void)context;
+#endif
     printf("SUMMARY: FAILED at '%s'\n", step_name);
     fflush(stdout);
     _exit(10);
+}
+
+static void install_signal_handlers(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_sigaction = on_signal;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGALRM, &sa, NULL);
 }
 
 static double now_ms(void)
@@ -292,31 +329,124 @@ static void try_client_extensions(void)
         printf("   client extensions: query did not complete normally (status 0x%x)\n", status);
 }
 
+/* Opt-in only (env TRY_REGISTER_DISPLAY=1) - everything above this point is read-only or a standard, non-disruptive IPC handshake (NxClient_Join).
+ * default_nexus.h (see hbbtv2/headers/gb-nexus-headers/) declares:
+ *   NXPL_EXPORT void NXPL_RegisterNexusDisplayPlatform(NXPL_PlatformHandle *handle, NEXUS_DISPLAYHANDLE display);
+ *   "Register a display for exclusive use. The client application should not use the display until calling
+ *    NXPL_UnregisterNexusDisplayPlatform. It will register its own memory, h/w and display APIs suitable for basic
+ *    exclusive mode rendering on a Nexus display."
+ * "register its own memory ... APIs" matches "Memory interface not registered" (gmem_abstract.c:132) exactly - this is very likely the actual fix -
+ * but "exclusive use" is a materially different kind of risk than anything tried so far: it could plausibly affect enigma2's live OSD while held,
+ * not just cost a GPU client slot. So, unlike every other step in this file, it does not run unless explicitly asked for. In client (multi-process)
+ * mode NEXUS_DISPLAYHANDLE is just void* (see default_nexus.h's #else branch), not a real handle from NEXUS_Display_Open (that call is
+ * single-process-only) - NULL is the simplest, most conservative first try. Runs register -> eglGetDisplay -> eglInitialize -> unregister all in
+ * one short-lived forked child, to keep any window where the display is "exclusive" as brief as possible; a crash here is caught exactly like
+ * every other step (SA_SIGINFO register dump, does not stop the rest of the report) - the fork is still useful even with nothing else after it. */
+static void try_register_display_platform(void)
+{
+    const char *opt = getenv("TRY_REGISTER_DISPLAY");
+    if (!opt || strcmp(opt, "1") != 0) {
+        step("NXPL_RegisterNexusDisplayPlatform - SKIPPED (opt-in only: set TRY_REGISTER_DISPLAY=1 to try it)");
+        printf("   default_nexus.h: 'Register a display for exclusive use ... registers its own memory, h/w and display APIs' - looks like the\n");
+        printf("   actual fix for 'Memory interface not registered', but 'exclusive use' means it could plausibly affect enigma2's live OSD while\n");
+        printf("   held, unlike every read-only/join-only step tried so far - opt-in deliberately, run only when a brief OSD hiccup is acceptable.\n");
+        return;
+    }
+    step("NXPL_RegisterNexusDisplayPlatform (libnxpl.so) - TRY_REGISTER_DISPLAY=1 set: attempting the real fix for 'Memory interface not registered'");
+    printf("   default_nexus.h: NXPL_RegisterNexusDisplayPlatform(NXPL_PlatformHandle *handle, NEXUS_DISPLAYHANDLE display) - 'exclusive use',\n");
+    printf("   registers memory/h+w/display APIs for a Nexus display. Client mode: NEXUS_DISPLAYHANDLE is void* - trying NULL.\n");
+    printf("   register -> eglGetDisplay -> eglInitialize -> unregister, all in one short-lived forked child.\n");
+    alarm(15);
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid < 0) {
+        printf("   (fork failed: %s)\n", strerror(errno));
+        return;
+    }
+    if (pid == 0) {
+        alarm(10);
+        void *nxpl = dlopen("libnxpl.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!nxpl) {
+            printf("   dlopen(\"libnxpl.so\"): %s\n", dlerror());
+            fflush(stdout);
+            _exit(2);
+        }
+        void (*Register)(void **, void *) = (void (*)(void **, void *))dlsym(nxpl, "NXPL_RegisterNexusDisplayPlatform");
+        void (*Unregister)(void *) = (void (*)(void *))dlsym(nxpl, "NXPL_UnregisterNexusDisplayPlatform");
+        printf("   NXPL_RegisterNexusDisplayPlatform: %s, NXPL_UnregisterNexusDisplayPlatform: %s\n",
+               Register ? "found" : "not found", Unregister ? "found" : "not found");
+        if (!Register || !Unregister) {
+            fflush(stdout);
+            _exit(2);
+        }
+        void *handle = NULL;
+        printf("   calling NXPL_RegisterNexusDisplayPlatform(&handle, NULL)...\n");
+        fflush(stdout);
+        Register(&handle, NULL);
+        printf("   returned, handle=%p\n", handle);
+        fflush(stdout);
+
+        EGLDisplay dpy = eglGetDisplay(NULL);
+        printf("   eglGetDisplay(EGL_DEFAULT_DISPLAY): %p\n", dpy);
+        fflush(stdout);
+        int ok = 0;
+        if (dpy) {
+            EGLint maj = 0, min = 0;
+            printf("   calling eglInitialize...\n");
+            fflush(stdout);
+            ok = eglInitialize(dpy, &maj, &min);
+            printf("   eglInitialize: %s (EGL %d.%d)\n", ok ? "SUCCESS" : "failed", maj, min);
+        }
+        fflush(stdout);
+        printf("   calling NXPL_UnregisterNexusDisplayPlatform(handle)...\n");
+        fflush(stdout);
+        Unregister(handle);
+        printf("   unregistered\n");
+        fflush(stdout);
+        _exit(ok ? 0 : 1);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFSIGNALED(status))
+        printf("   SUMMARY: CRASHED (signal %d) during the register/init/unregister sequence\n", WTERMSIG(status));
+    else if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        printf("   SUMMARY: eglInitialize SUCCEEDED after NXPL_RegisterNexusDisplayPlatform(NULL) - this is very likely the actual fix\n");
+    else
+        printf("   SUMMARY: did not succeed (exit code %d)\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+}
+
 int main(void)
 {
     int missing = 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    signal(SIGSEGV, on_signal);
-    signal(SIGABRT, on_signal);
-    signal(SIGALRM, on_signal);
+    install_signal_handlers();
     alarm(20);
 
     framebuffer();
 
-    step("dlopen libEGL");
-    void *egl = dlopen("libEGL.so.1", RTLD_NOW | RTLD_GLOBAL);
-    if (!egl)
-        egl = dlopen("libEGL.so", RTLD_NOW | RTLD_GLOBAL);
+    /* On the DM900 and a VU+ Ultimo, libEGL.so(.1)/libGLESv2.so(.2) are themselves just symlinks to the vendor GPU driver .so - the EGL/GLES symbols
+     * live in that file. Some Nexus-based Broadcom images (GigaBlue) have no libEGL.so at all; try the driver .so itself, and a Nexus Platform Layer
+     * shim, as fallbacks. Every name that resolves is reported, so which one actually worked is visible in a partial/failed run too. */
+    static const char *const egl_names[] = { "libEGL.so.1", "libEGL.so", "libv3ddriver.so", "libnxpl.so", NULL };
+    static const char *const gles_names[] = { "libGLESv2.so.2", "libGLESv2.so", "libv3ddriver.so", "libnxpl.so", NULL };
+    step("dlopen libEGL (or a driver library that provides it)");
+    void *egl = NULL;
+    for (int i = 0; egl_names[i] && !egl; i++) {
+        egl = dlopen(egl_names[i], RTLD_NOW | RTLD_GLOBAL);
+        printf("   dlopen(\"%s\"): %s\n", egl_names[i], egl ? "ok" : dlerror());
+    }
     if (!egl) {
-        printf("   no libEGL: %s\nSUMMARY: no EGL library\n", dlerror());
+        printf("SUMMARY: no EGL library found under any of the usual names\n");
         return 1;
     }
-    step("dlopen libGLESv2");
-    void *gles = dlopen("libGLESv2.so.2", RTLD_NOW | RTLD_GLOBAL);
-    if (!gles)
-        gles = dlopen("libGLESv2.so", RTLD_NOW | RTLD_GLOBAL);
+    step("dlopen libGLESv2 (or a driver library that provides it)");
+    void *gles = NULL;
+    for (int i = 0; gles_names[i] && !gles; i++) {
+        gles = dlopen(gles_names[i], RTLD_NOW | RTLD_GLOBAL);
+        printf("   dlopen(\"%s\"): %s\n", gles_names[i], gles ? "ok" : dlerror());
+    }
     if (!gles) {
-        printf("   no libGLESv2: %s\nSUMMARY: no GLES library\n", dlerror());
+        printf("SUMMARY: no GLESv2 library found under any of the usual names\n");
         return 1;
     }
     *(void **)&eglGetProcAddress = dlsym(egl, "eglGetProcAddress");
@@ -332,6 +462,9 @@ int main(void)
     LOAD(egl, eglGetError);
     LOAD(egl, eglTerminate);
     *(void **)&eglGetPlatformDisplayEXT = eglGetProcAddress ? eglGetProcAddress("eglGetPlatformDisplayEXT") : NULL;
+    *(void **)&eglGetPlatformDisplay = dlsym(egl, "eglGetPlatformDisplay");
+    if (!eglGetPlatformDisplay && eglGetProcAddress)
+        *(void **)&eglGetPlatformDisplay = eglGetProcAddress("eglGetPlatformDisplay");
     LOAD(gles, glGetString);
     LOAD(gles, glGetIntegerv);
     LOAD(gles, glGetError);
@@ -363,20 +496,73 @@ int main(void)
         return 1;
     }
 
-    step("eglGetPlatformDisplayEXT (symbol only, not called yet)");
+    step("eglGetPlatformDisplayEXT / eglGetPlatformDisplay (symbols only, not called yet)");
     printf("   eglGetPlatformDisplayEXT: %s\n", eglGetPlatformDisplayEXT ? "available" : "not available");
+    printf("   eglGetPlatformDisplay (EGL 1.5 core): %s\n", eglGetPlatformDisplay ? "available" : "not available");
 
-    step("eglGetDisplay(EGL_DEFAULT_DISPLAY)");
-    EGLDisplay dpy = eglGetDisplay(NULL);
-    printf("   display %p\n", dpy);
-    if (!dpy) {
-        printf("SUMMARY: no default EGL display\n");
-        return 2;
+    /* Nexus-based Broadcom boxes (GigaBlue confirmed 2026-09-22: eglInitialize asserts "Memory interface not registered" at
+     * libs/platform/bcg_abstract/gmem_abstract.c:132:gmem_init) require a process to join Nexus - NxClient_Join(), from libnxclient.so - before
+     * touching EGL at all; see hbbtv2/headers/gb-nexus-headers/nxclient.h. Try it here, before any EGL call, so this run can show directly whether
+     * it fixes eglInitialize. Harmless no-op on boxes without libnxclient.so (e.g. dm900/libvc5dream, plain VU+ libv3ddriver-only images). No Nexus
+     * SDK headers at build time: NxClient_JoinSettings' exact layout is unknown here, so an oversized zeroed buffer is used instead of the real
+     * struct - NxClient_GetDefaultJoinSettings only WRITES into it and NxClient_Join only reads back what was just written, so this is safe as
+     * long as the buffer is at least as large as the real struct (1024 bytes is generous; the real struct is roughly name[32]+a few ints+a
+     * certificate, well under 200 bytes in known Broadcom SDKs). */
+    step("NxClient_Join (libnxclient.so) - the Nexus client-join step other Nexus-based boxes needed before EGL would work");
+    void *nxclient = dlopen("libnxclient.so", RTLD_NOW | RTLD_GLOBAL);
+    printf("   dlopen(\"libnxclient.so\"): %s\n", nxclient ? "ok" : dlerror());
+    if (nxclient) {
+        void (*NxClient_GetDefaultJoinSettings)(void *) = dlsym(nxclient, "NxClient_GetDefaultJoinSettings");
+        int (*NxClient_Join)(const void *) = dlsym(nxclient, "NxClient_Join");
+        printf("   NxClient_GetDefaultJoinSettings: %s, NxClient_Join: %s\n",
+               NxClient_GetDefaultJoinSettings ? "found" : "not found",
+               NxClient_Join ? "found" : "not found");
+        if (NxClient_GetDefaultJoinSettings && NxClient_Join) {
+            static unsigned char join_settings[1024];
+            memset(join_settings, 0, sizeof(join_settings));
+            NxClient_GetDefaultJoinSettings(join_settings);
+            int rc = NxClient_Join(join_settings);
+            printf("   NxClient_Join() returned %d (0 = NEXUS_SUCCESS on this platform's convention)\n", rc);
+        } else {
+            printf("   libnxclient.so found but missing expected symbols - skipping join attempt\n");
+        }
+    } else {
+        printf("   no libnxclient.so on this box - skipping (expected on non-Nexus platforms, e.g. dm900/libvc5dream)\n");
     }
-    step("eglInitialize");
+
+    try_register_display_platform();
+
+    return try_display_strategies();
+}
+
+/* How to get *some* EGLDisplay differs enough across vendor EGL implementations (and at least one - VU+ Ultimo 4K, 2026-09-22 report - crashes
+ * outright inside eglInitialize(eglGetDisplay(EGL_DEFAULT_DISPLAY), ...) with no diagnostic) that trying only the one conventional way and giving up
+ * on a crash wastes a whole report round-trip through a team member's box. Each strategy below runs in its own forked child: a crash in one (caught by
+ * the SA_SIGINFO handler above, with a register dump) does not stop the next strategy from being tried, and the first strategy that gets all the way
+ * through the probe keeps running normally (configs, context, read-back) inside that same child, so its output is the full report. */
+struct display_strategy {
+    const char *label;
+    int kind; /* 0 = eglGetDisplay(EGL_DEFAULT_DISPLAY); 1 = eglGetDisplay(native=1) - some non-compliant vendor EGLs do not accept NULL as "default";
+                 2/3 = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR / EGL_PLATFORM_SURFACELESS_MESA, NULL, NULL) - only tried if the symbol resolved */
+};
+
+static EGLDisplay acquire_display(const struct display_strategy *s)
+{
+    switch (s->kind) {
+    case 0: return eglGetDisplay(NULL);
+    case 1: return eglGetDisplay((void *)1);
+    case 2: return eglGetPlatformDisplay ? eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, NULL, NULL) : NULL;
+    case 3: return eglGetPlatformDisplay ? eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, NULL, NULL) : NULL;
+    }
+    return NULL;
+}
+
+static int run_probe_with_display(const char *label, EGLDisplay dpy)
+{
+    step("eglInitialize (%s)", label);
     EGLint maj = 0, min = 0;
     if (!eglInitialize(dpy, &maj, &min)) {
-        printf("   eglInitialize FAILED 0x%x\nSUMMARY: eglInitialize failed\n", eglGetError());
+        printf("   eglInitialize FAILED 0x%x\nSUMMARY: eglInitialize failed (%s)\n", eglGetError(), label);
         return 3;
     }
     printf("   EGL %d.%d, vendor '%s', version '%s', client APIs '%s'\n", maj, min, eglQueryString(dpy, EGL_VENDOR), eglQueryString(dpy, EGL_VERSION),
@@ -510,8 +696,55 @@ int main(void)
     try_client_extensions();
 
     step("done");
-    printf("SUMMARY: OK  GLES %d  surfaceless=%d pbuffer=%d colours=%s  window-configs=%d\n", version, surfaceless, pbok, colours ? "ok" : "WRONG", win);
+    printf("SUMMARY: OK (%s)  GLES %d  surfaceless=%d pbuffer=%d colours=%s  window-configs=%d\n", label, version, surfaceless, pbok,
+        colours ? "ok" : "WRONG", win);
     eglMakeCurrent(dpy, NULL, NULL, NULL);
     eglTerminate(dpy);
     return 0;
+}
+
+static int try_display_strategies(void)
+{
+    static const struct display_strategy strategies[] = {
+        { "eglGetDisplay(EGL_DEFAULT_DISPLAY)", 0 },
+        { "eglGetDisplay(native=1)", 1 },
+        { "eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR)", 2 },
+        { "eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA)", 3 },
+    };
+    alarm(90); /* replaces the top-level alarm(20): up to 4 isolated attempts follow, each with its own child-local alarm(15) */
+    for (size_t i = 0; i < sizeof strategies / sizeof *strategies; i++) {
+        if (strategies[i].kind >= 2 && !eglGetPlatformDisplay) {
+            step("skipping display strategy: %s (symbol not available)", strategies[i].label);
+            continue;
+        }
+        step("trying display strategy: %s", strategies[i].label);
+        fflush(stdout);
+        pid_t pid = fork();
+        if (pid < 0) {
+            printf("   (fork failed: %s)\n", strerror(errno));
+            continue;
+        }
+        if (pid == 0) {
+            alarm(15);
+            EGLDisplay dpy = acquire_display(&strategies[i]);
+            printf("   display %p\n", dpy);
+            if (!dpy) {
+                printf("   no display from this strategy\n");
+                _exit(2);
+            }
+            _exit(run_probe_with_display(strategies[i].label, dpy));
+        }
+        int status = 0;
+        waitpid(pid, &status, 0);
+        if (WIFSIGNALED(status))
+            printf("   strategy '%s': the child was killed by signal %d (see the register dump above)\n", strategies[i].label, WTERMSIG(status));
+        else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            printf("   strategy '%s': SUCCEEDED - see the full report above\n", strategies[i].label);
+            return 0;
+        } else
+            printf("   strategy '%s': did not succeed (exit code %d)\n", strategies[i].label, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    }
+    try_client_extensions();
+    printf("SUMMARY: no display strategy worked on this box\n");
+    return 3;
 }
