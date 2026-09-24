@@ -53,6 +53,7 @@
  */
 #define _GNU_SOURCE
 #include "wpe_fb_png.h"
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib-unix.h>
@@ -106,7 +107,7 @@ typedef struct {
     int *xi0, *xi1, *yi0, *yi1; /* bilinear sampling: the two source columns/rows of every output column/row ... */
     guint16 *xwt, *ywt; /* ... and the weight (0..256) of the second one */
 
-    gboolean fb_on, unpremul, opaque;
+    gboolean fb_on, nxpl_on, unpremul, opaque;
     int unpremul_from_y; /* -1 = off */
     int fb_fd;
     guint8 *fb_map;
@@ -424,6 +425,369 @@ static gboolean guard_tick(gpointer data)
     return G_SOURCE_CONTINUE;
 }
 
+/* ------------------------------------------------------------------- NXPL/Nexus presentation backend ---- */
+
+/* On a Nexus-middleware Broadcom box (GigaBlue), /dev/fb0 is not connected to the real display scanout at all: Nexus owns the physical display
+ * exclusively through its own IPC/compositor (NXPL_RegisterNexusDisplayPlatform's own doc comment in default_nexus.h literally says "Register a
+ * display for exclusive use"). Confirmed on real hardware 2026-09-23 with tools/vuplus-probe/fb_paint_probe.c (a raw fb0 write: invisible) and
+ * tools/vuplus-probe/nxpl_window_probe.c (an NXPL native window + a real EGL window surface: visible) - see project memory
+ * project_hbbtv2_wpe_orb_plan.md for the full trace. This backend reuses the exact sequence nxpl_window_probe.c already proved works: join Nexus,
+ * register the EGL platform (patch 0017/r10's own fix, needed here too since this process also calls into EGL), create+show an NXPL native window,
+ * get a real EGL window surface against it, and upload each already-composited frame (out.conv - the very same buffer the fb0 path would have
+ * memcpy'd) as a GL texture drawn full-screen, presented with eglSwapBuffers. Nexus's own hardware compositor does the actual scanout from there.
+ *
+ * Pure runtime dlopen/dlsym, no vendor headers linked at build time, no link-time dependency on libnxclient.so/libnxpl.so/libEGL.so/libGLESv2.so -
+ * nxpl_try_open() safely returns FALSE (falling back to the existing /dev/fb0 path) on any platform without them, e.g. the DM900. */
+
+typedef void *EGLDisplayNX, *EGLConfigNX, *EGLContextNX, *EGLSurfaceNX, *EGLNativeWindowTypeNX;
+typedef int EGLBoolean;
+
+static gboolean nxpl_dirty;
+/* Full 2D bounding box of everything touched since the last present(), not just a row range. r21/r22's own measurements on a real GigaBlue (project
+ * memory project_hbbtv2_wpe_orb_plan.md, 2026-09-23) proved the upload cost is bandwidth-bound, not a fixed per-call cost (min 2.02 ms for a
+ * 138240 px update vs. max 52.95 ms for a full 2073600 px one - scales with size) - so shrinking the uploaded byte count is the real lever. Plain
+ * GLES2 has no GL_UNPACK_ROW_LENGTH, so a genuine x-sub-range out of out.conv's packed rows needs a CPU-side compaction copy into a scratch buffer
+ * first (see nxpl_scratch below) - worth it because CPU memcpy bandwidth is far higher than the ~150-270 MB/s this GPU upload path measured at;
+ * skipped when the touched width is already close to full-screen (compacting would just add CPU cost for no real saving). */
+static int nxpl_dirty_x0, nxpl_dirty_y0, nxpl_dirty_x1, nxpl_dirty_y1;
+static guint32 *nxpl_scratch;
+static size_t nxpl_scratch_len;
+/* Timing breakdown for nxpl_present(), split at the one place that can plausibly block on Nexus's own client/server IPC (eglSwapBuffers) versus
+ * everything before it (a CPU-side glTexSubImage2D upload + a trivial 4-vertex glDrawArrays submission, both just queuing GL commands) - added to
+ * answer a concrete question (GigaBlue "about half the speed of dreambox"): is the cost in this new presentation code, or somewhere this code
+ * can't reach (the WebProcess's own Nexus-registered Skia GPU compositing, or a hardware clock difference)? See project memory
+ * project_hbbtv2_wpe_orb_plan.md, 2026-09-23. */
+static guint64 nxpl_present_count;
+static double nxpl_upload_ms, nxpl_swap_ms;
+/* r21's own result (real GigaBlue capture, 2026-09-23): eglSwapBuffers averaged 1.33 ms, upload+draw averaged 8.94 ms - Nexus IPC/compositor-sync
+ * is NOT the bottleneck, the CPU-side texture upload is, and that session averaged uploading ~30% of the screen per frame (heavy scrolling). Two
+ * different fixes apply depending on WHY the upload is slow: bandwidth-bound (scales with bytes moved -> reduce bytes, e.g. real 2D sub-rect
+ * tracking instead of just row-range) vs. a large fixed per-call cost regardless of size (call-overhead-bound -> reduce how often we upload/swap
+ * instead). Min/max upload+draw time (plus the smallest/largest dirty area seen) disambiguates: if even the smallest updates are still slow, that
+ * points at fixed overhead; if only large updates are slow, that points at bandwidth. */
+static double nxpl_upload_ms_min = -1, nxpl_upload_ms_max;
+static long nxpl_upload_px_at_min, nxpl_upload_px_at_max;
+/* r23's own result (real GigaBlue capture, 2026-09-23): after adding 2D sub-rect compaction, the average improved slightly (8.25 ms vs ~8.9 ms
+ * before) but the MAX got dramatically worse per byte - 48.28 ms for only 67500 px vs r22's 52.95 ms for a full 2073600 px screen, i.e. ~30x
+ * fewer bytes taking almost the same time. That is not bandwidth-bound behaviour any more - something about the compacted upload path is
+ * pathologically slow for whatever SHAPE that region was (a narrow-but-tall region is the leading suspect: this GPU's tiled texture memory
+ * layout may cross many internal tile boundaries on a many-row, few-column update even though the total byte count is small, unlike a wide
+ * update that stays within fewer tile rows). Width/height (not just total px) recorded here so the actual problem shape is visible directly in
+ * the next capture instead of guessing again. */
+static int nxpl_upload_w_at_min, nxpl_upload_h_at_min, nxpl_upload_w_at_max, nxpl_upload_h_at_max;
+static void *nxpl_platform_handle;
+static void *nxpl_native_window;
+static void (*nxpl_ShowNativeWindowEXT)(void *, int);
+static void (*nxpl_DestroyNativeWindow)(void *);
+static void (*nxpl_UnregisterNexusDisplayPlatform)(void *);
+static EGLDisplayNX nxpl_egl_display;
+static EGLSurfaceNX nxpl_egl_surface;
+static EGLContextNX nxpl_egl_context;
+static unsigned nxpl_texture, nxpl_program;
+static EGLBoolean (*nxpl_eglSwapBuffers)(EGLDisplayNX, EGLSurfaceNX);
+static void (*nxpl_glTexSubImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);
+static void (*nxpl_glClear)(unsigned);
+static void (*nxpl_glDrawArrays)(unsigned, int, int);
+static void (*nxpl_glUseProgram)(unsigned);
+
+static const char *nxpl_vs_src =
+    "attribute vec2 pos; attribute vec2 texcoord; varying vec2 v_texcoord;"
+    "void main() { v_texcoord = texcoord; gl_Position = vec4(pos, 0.0, 1.0); }";
+static const char *nxpl_fs_src =
+    "precision mediump float; varying vec2 v_texcoord; uniform sampler2D tex;"
+    "void main() { gl_FragColor = texture2D(tex, v_texcoord); }";
+
+/* Screen top-left (view row 0) at NDC (-1,+1): texcoord v=0 there, v=1 at the bottom - out.conv's row 0 is the top of the image. */
+static const float nxpl_quad[] = {
+    /*  x,     y,    u,   v */
+    -1.0f,  1.0f, 0.0f, 0.0f,
+    -1.0f, -1.0f, 0.0f, 1.0f,
+     1.0f,  1.0f, 1.0f, 0.0f,
+     1.0f, -1.0f, 1.0f, 1.0f,
+};
+
+static gboolean nxpl_try_open(void)
+{
+    static const char *const egl_names[] = { "libEGL.so.1", "libEGL.so", "libv3ddriver.so", NULL };
+    static const char *const gles_names[] = { "libGLESv2.so.2", "libGLESv2.so", "libv3ddriver.so", NULL };
+    void *egl = NULL, *gles = NULL;
+    for (int i = 0; egl_names[i] && !egl; i++)
+        egl = dlopen(egl_names[i], RTLD_NOW | RTLD_GLOBAL);
+    for (int i = 0; gles_names[i] && !gles; i++)
+        gles = dlopen(gles_names[i], RTLD_NOW | RTLD_GLOBAL);
+    if (!egl || !gles) {
+        fprintf(stderr, "nxpl: no EGL/GLES library found - not a GigaBlue/Nexus box, falling back to /dev/fb0\n");
+        return FALSE;
+    }
+    void *nxclient = dlopen("libnxclient.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!nxclient) {
+        fprintf(stderr, "nxpl: dlopen(\"libnxclient.so\") failed (%s) - not a Nexus box, falling back to /dev/fb0\n", dlerror());
+        return FALSE;
+    }
+    void (*GetDefaultJoinSettings)(void *) = dlsym(nxclient, "NxClient_GetDefaultJoinSettings");
+    int (*Join)(const void *) = dlsym(nxclient, "NxClient_Join");
+    if (!GetDefaultJoinSettings || !Join) {
+        fprintf(stderr, "nxpl: NxClient_Join symbols not found - falling back to /dev/fb0\n");
+        return FALSE;
+    }
+    unsigned char joinSettings[1024] = { 0 }; /* oversized zeroed buffer: GetDefaultJoinSettings only writes, Join only reads back - see
+                                                * NexusEGLPlatformQuirk.h for why the real struct layout never needs to be known precisely */
+    GetDefaultJoinSettings(joinSettings);
+    int jrc = Join(joinSettings);
+    fprintf(stderr, "nxpl: NxClient_Join() returned %d (0 = NEXUS_SUCCESS)\n", jrc);
+
+    void *nxpl = dlopen("libnxpl.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!nxpl) {
+        fprintf(stderr, "nxpl: dlopen(\"libnxpl.so\") failed: %s - falling back to /dev/fb0\n", dlerror());
+        return FALSE;
+    }
+    void (*Register)(void **, void *) = dlsym(nxpl, "NXPL_RegisterNexusDisplayPlatform");
+    nxpl_UnregisterNexusDisplayPlatform = dlsym(nxpl, "NXPL_UnregisterNexusDisplayPlatform");
+    void (*GetDefaultWindowInfo)(void *) = dlsym(nxpl, "NXPL_GetDefaultNativeWindowInfoEXT");
+    void *(*CreateWindow)(const void *) = dlsym(nxpl, "NXPL_CreateNativeWindowEXT");
+    nxpl_DestroyNativeWindow = dlsym(nxpl, "NXPL_DestroyNativeWindow");
+    nxpl_ShowNativeWindowEXT = (void (*)(void *, int))dlsym(nxpl, "NXPL_ShowNativeWindowEXT");
+    if (!Register || !nxpl_UnregisterNexusDisplayPlatform || !GetDefaultWindowInfo || !CreateWindow ||
+        !nxpl_DestroyNativeWindow || !nxpl_ShowNativeWindowEXT) {
+        fprintf(stderr, "nxpl: a required NXPL symbol was not found - falling back to /dev/fb0\n");
+        return FALSE;
+    }
+    Register(&nxpl_platform_handle, NULL);
+    fprintf(stderr, "nxpl: NXPL_RegisterNexusDisplayPlatform() -> handle=%p\n", nxpl_platform_handle);
+    if (!nxpl_platform_handle) {
+        fprintf(stderr, "nxpl: register did not produce a handle - falling back to /dev/fb0\n");
+        return FALSE;
+    }
+
+    /* Confirmed on a real GigaBlue 2026-09-23 (see the log in project memory): 1920x1080. No fb0 to query it from on this path - if a future
+     * Nexus-based box needs a different resolution, this is the one place to make it configurable. */
+    out.vinfo.xres = 1920;
+    out.vinfo.yres = 1080;
+    /* Matches this project's own precedent for "no real fb0" (see the !want_fb branch above): red.offset=0/green=8/blue=16/transp=24 makes
+     * convert_pixels() emit genuine byte-order R,G,B,A - i.e. standard GL_RGBA/GL_UNSIGNED_BYTE texture data, no swizzle, no BGRA extension
+     * dependency, and (since it's not the native_bgra fast path) always goes through the real per-pixel conversion, straight-alpha included. */
+    out.vinfo.red.offset = 0; out.vinfo.green.offset = 8; out.vinfo.blue.offset = 16; out.vinfo.transp.offset = 24;
+    out.vinfo.bits_per_pixel = 32;
+
+    return TRUE;
+}
+
+/* Called once out.ow/out.oh/out.fb_x/out.fb_y are known (they need out.vinfo.xres/yres, which nxpl_try_open() just set). Creates the actual
+ * native window/EGL surface at the real output size and compiles the textured-quad shader. On any failure, everything already registered by
+ * nxpl_try_open() is torn down via nxpl_close() by the caller - there is no partial-nxpl state left running. */
+static gboolean nxpl_finish_open(void)
+{
+    void *nxpl = dlopen("libnxpl.so", RTLD_NOW); /* already loaded by nxpl_try_open(); dlopen just bumps the refcount and returns the same handle */
+    void (*GetDefaultWindowInfo_)(void *) = dlsym(nxpl, "NXPL_GetDefaultNativeWindowInfoEXT");
+    void *(*CreateWindow)(const void *) = dlsym(nxpl, "NXPL_CreateNativeWindowEXT");
+    unsigned char windowInfo[512] = { 0 }; /* oversized zeroed buffer, same reasoning as joinSettings above */
+    GetDefaultWindowInfo_(windowInfo);
+    guint32 *fields = (guint32 *)windowInfo; /* NXPL_NativeWindowInfoEXT: width,height,x,y (default_nexus.h) */
+    fields[0] = (guint32)out.ow;
+    fields[1] = (guint32)out.oh;
+    fields[2] = (guint32)out.fb_x;
+    fields[3] = (guint32)out.fb_y;
+    nxpl_native_window = CreateWindow(windowInfo);
+    fprintf(stderr, "nxpl: NXPL_CreateNativeWindowEXT(%dx%d @ %d,%d) -> %p\n", out.ow, out.oh, out.fb_x, out.fb_y, nxpl_native_window);
+    if (!nxpl_native_window)
+        return FALSE;
+    nxpl_ShowNativeWindowEXT(nxpl_native_window, 1);
+
+    void *egl = dlopen("libEGL.so.1", RTLD_NOW) ?: dlopen("libEGL.so", RTLD_NOW) ?: dlopen("libv3ddriver.so", RTLD_NOW);
+    void *gles = dlopen("libGLESv2.so.2", RTLD_NOW) ?: dlopen("libGLESv2.so", RTLD_NOW) ?: dlopen("libv3ddriver.so", RTLD_NOW);
+    void *(*eglGetDisplay_)(void *) = dlsym(egl, "eglGetDisplay");
+    EGLBoolean (*eglInitialize_)(void *, int *, int *) = dlsym(egl, "eglInitialize");
+    EGLBoolean (*eglBindAPI_)(unsigned) = dlsym(egl, "eglBindAPI");
+    EGLBoolean (*eglChooseConfig_)(void *, const int *, void **, int, int *) = dlsym(egl, "eglChooseConfig");
+    void *(*eglCreateWindowSurface_)(void *, void *, EGLNativeWindowTypeNX, const int *) = dlsym(egl, "eglCreateWindowSurface");
+    void *(*eglCreateContext_)(void *, void *, void *, const int *) = dlsym(egl, "eglCreateContext");
+    EGLBoolean (*eglMakeCurrent_)(void *, void *, void *, void *) = dlsym(egl, "eglMakeCurrent");
+    nxpl_eglSwapBuffers = dlsym(egl, "eglSwapBuffers");
+    if (!eglGetDisplay_ || !eglInitialize_ || !eglChooseConfig_ || !eglCreateWindowSurface_ || !eglCreateContext_ ||
+        !eglMakeCurrent_ || !nxpl_eglSwapBuffers) {
+        fprintf(stderr, "nxpl: a required EGL symbol was not found\n");
+        return FALSE;
+    }
+    nxpl_egl_display = eglGetDisplay_(NULL);
+    int maj = 0, min = 0;
+    if (!nxpl_egl_display || !eglInitialize_(nxpl_egl_display, &maj, &min)) {
+        fprintf(stderr, "nxpl: eglGetDisplay/eglInitialize failed\n");
+        return FALSE;
+    }
+    fprintf(stderr, "nxpl: EGL %d.%d\n", maj, min);
+    if (eglBindAPI_) eglBindAPI_(0x30A0 /* EGL_OPENGL_ES_API */);
+    int cfgAttrs[] = { 0x3033 /* EGL_SURFACE_TYPE */, 4 /* EGL_WINDOW_BIT */, 0x3040 /* EGL_RENDERABLE_TYPE */, 4 /* EGL_OPENGL_ES2_BIT */,
+        0x3024 /* EGL_RED_SIZE */, 8, 0x3023 /* EGL_GREEN_SIZE */, 8, 0x3022 /* EGL_BLUE_SIZE */, 8, 0x3021 /* EGL_ALPHA_SIZE */, 8,
+        0x3038 /* EGL_NONE */ };
+    void *config = NULL;
+    int numConfigs = 0;
+    if (!eglChooseConfig_(nxpl_egl_display, cfgAttrs, &config, 1, &numConfigs) || numConfigs < 1) {
+        fprintf(stderr, "nxpl: eglChooseConfig found no EGL_WINDOW_BIT config\n");
+        return FALSE;
+    }
+    nxpl_egl_surface = eglCreateWindowSurface_(nxpl_egl_display, config, (EGLNativeWindowTypeNX)nxpl_native_window, NULL);
+    if (!nxpl_egl_surface) {
+        fprintf(stderr, "nxpl: eglCreateWindowSurface failed\n");
+        return FALSE;
+    }
+    int ctxAttrs[] = { 0x3098 /* EGL_CONTEXT_CLIENT_VERSION */, 2, 0x3038 /* EGL_NONE */ };
+    nxpl_egl_context = eglCreateContext_(nxpl_egl_display, config, NULL, ctxAttrs);
+    if (!nxpl_egl_context || !eglMakeCurrent_(nxpl_egl_display, nxpl_egl_surface, nxpl_egl_surface, nxpl_egl_context)) {
+        fprintf(stderr, "nxpl: eglCreateContext/eglMakeCurrent failed\n");
+        return FALSE;
+    }
+
+    unsigned (*glCreateShader_)(unsigned) = dlsym(gles, "glCreateShader");
+    void (*glShaderSource_)(unsigned, int, const char **, const int *) = dlsym(gles, "glShaderSource");
+    void (*glCompileShader_)(unsigned) = dlsym(gles, "glCompileShader");
+    unsigned (*glCreateProgram_)(void) = dlsym(gles, "glCreateProgram");
+    void (*glAttachShader_)(unsigned, unsigned) = dlsym(gles, "glAttachShader");
+    void (*glBindAttribLocation_)(unsigned, unsigned, const char *) = dlsym(gles, "glBindAttribLocation");
+    void (*glLinkProgram_)(unsigned) = dlsym(gles, "glLinkProgram");
+    void (*glGenTextures_)(int, unsigned *) = dlsym(gles, "glGenTextures");
+    void (*glBindTexture_)(unsigned, unsigned) = dlsym(gles, "glBindTexture");
+    void (*glTexParameteri_)(unsigned, unsigned, int) = dlsym(gles, "glTexParameteri");
+    void (*glTexImage2D_)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *) = dlsym(gles, "glTexImage2D");
+    void (*glEnableVertexAttribArray_)(unsigned) = dlsym(gles, "glEnableVertexAttribArray");
+    void (*glVertexAttribPointer_)(unsigned, int, unsigned, unsigned char, int, const void *) = dlsym(gles, "glVertexAttribPointer");
+    void (*glViewport_)(int, int, int, int) = dlsym(gles, "glViewport");
+    void (*glDisable_)(unsigned) = dlsym(gles, "glDisable");
+    nxpl_glTexSubImage2D = dlsym(gles, "glTexSubImage2D");
+    nxpl_glClear = dlsym(gles, "glClear");
+    nxpl_glDrawArrays = dlsym(gles, "glDrawArrays");
+    nxpl_glUseProgram = dlsym(gles, "glUseProgram");
+    if (!glCreateShader_ || !glShaderSource_ || !glCompileShader_ || !glCreateProgram_ || !glAttachShader_ ||
+        !glBindAttribLocation_ || !glLinkProgram_ || !glGenTextures_ || !glBindTexture_ || !glTexParameteri_ || !glTexImage2D_ ||
+        !glEnableVertexAttribArray_ || !glVertexAttribPointer_ || !glViewport_ || !glDisable_ ||
+        !nxpl_glTexSubImage2D || !nxpl_glClear || !nxpl_glDrawArrays || !nxpl_glUseProgram) {
+        fprintf(stderr, "nxpl: a required GLES symbol was not found\n");
+        return FALSE;
+    }
+
+    unsigned vs = glCreateShader_(0x8B31 /* GL_VERTEX_SHADER */);
+    glShaderSource_(vs, 1, &nxpl_vs_src, NULL);
+    glCompileShader_(vs);
+    unsigned fs = glCreateShader_(0x8B30 /* GL_FRAGMENT_SHADER */);
+    glShaderSource_(fs, 1, &nxpl_fs_src, NULL);
+    glCompileShader_(fs);
+    nxpl_program = glCreateProgram_();
+    glAttachShader_(nxpl_program, vs);
+    glAttachShader_(nxpl_program, fs);
+    glBindAttribLocation_(nxpl_program, 0, "pos");
+    glBindAttribLocation_(nxpl_program, 1, "texcoord");
+    glLinkProgram_(nxpl_program);
+    nxpl_glUseProgram(nxpl_program);
+
+    glGenTextures_(1, &nxpl_texture);
+    glBindTexture_(0x0DE1 /* GL_TEXTURE_2D */, nxpl_texture);
+    glTexParameteri_(0x0DE1, 0x2801 /* GL_TEXTURE_MIN_FILTER */, 0x2601 /* GL_LINEAR */);
+    glTexParameteri_(0x0DE1, 0x2800 /* GL_TEXTURE_MAG_FILTER */, 0x2601);
+    glTexParameteri_(0x0DE1, 0x2802 /* GL_TEXTURE_WRAP_S */, 0x812F /* GL_CLAMP_TO_EDGE */);
+    glTexParameteri_(0x0DE1, 0x2803 /* GL_TEXTURE_WRAP_T */, 0x812F);
+    glTexImage2D_(0x0DE1, 0, 0x1908 /* GL_RGBA */, out.ow, out.oh, 0, 0x1908, 0x1401 /* GL_UNSIGNED_BYTE */, out.conv);
+
+    glEnableVertexAttribArray_(0);
+    glVertexAttribPointer_(0, 2, 0x1406 /* GL_FLOAT */, 0, 4 * sizeof(float), nxpl_quad);
+    glEnableVertexAttribArray_(1);
+    glVertexAttribPointer_(1, 2, 0x1406, 0, 4 * sizeof(float), nxpl_quad + 2);
+    glDisable_(0x0BE2 /* GL_BLEND */); /* first version: assume opaque HbbTV content, matching --opaque's own precedent for the fb0 path */
+    glViewport_(0, 0, out.ow, out.oh);
+
+    fprintf(stderr, "nxpl: ready - %dx%d NXPL window presented via a real EGL window surface\n", out.ow, out.oh);
+    return TRUE;
+}
+
+/* out.conv just changed (a damaged rect was converted into it) - upload and present the whole frame. One upload+swap per WebKit frame (called
+ * from view_render_buffer after all of a frame's damage rects are processed), not per rect - but only the union bounding box of everything
+ * touched since the last present() is re-uploaded (see nxpl_dirty_x0/y0/x1/y1 above), not the whole out.ow x out.oh frame. */
+static void nxpl_mark_dirty(int x0, int y0, int x1, int y1)
+{
+    if (!nxpl_dirty || x0 < nxpl_dirty_x0)
+        nxpl_dirty_x0 = x0;
+    if (!nxpl_dirty || y0 < nxpl_dirty_y0)
+        nxpl_dirty_y0 = y0;
+    if (!nxpl_dirty || x1 > nxpl_dirty_x1)
+        nxpl_dirty_x1 = x1;
+    if (!nxpl_dirty || y1 > nxpl_dirty_y1)
+        nxpl_dirty_y1 = y1;
+    nxpl_dirty = TRUE;
+}
+
+static void nxpl_present(void)
+{
+    if (!nxpl_dirty)
+        return;
+    nxpl_dirty = FALSE;
+    int y0 = CLAMP(nxpl_dirty_y0, 0, out.oh), y1 = CLAMP(nxpl_dirty_y1, 0, out.oh);
+    int x0 = CLAMP(nxpl_dirty_x0, 0, out.ow), x1 = CLAMP(nxpl_dirty_x1, 0, out.ow);
+    if (y1 <= y0 || x1 <= x0)
+        return;
+    int w = x1 - x0, h = y1 - y0;
+    int uploaded_w; /* the width actually passed to glTexSubImage2D - w in the compacted branch, out.ow in the full-width branch (was a metric
+                      * bug before r24: upload_px used to always compute w*h even on the full-width path, understating what was actually sent) */
+    gint64 t0 = g_get_monotonic_time();
+    nxpl_glUseProgram(nxpl_program);
+    if (w * 10 < out.ow * 9) {
+        /* Narrower than 90% of the screen width: compact rows x0..x1 into a tightly-packed scratch buffer first (plain GLES2 has no
+         * GL_UNPACK_ROW_LENGTH to sub-range a row directly out of out.conv's packed buffer) and upload only that - r22's own measurement (real
+         * GigaBlue, 2026-09-23: min 2.02 ms for a 138240 px update vs. max 52.95 ms for a full 2073600 px one) proved this is bandwidth-bound,
+         * and CPU memcpy bandwidth is far higher than the ~150-270 MB/s that GPU upload measured at, so paying for this copy to shrink the
+         * upload is a real net win. Skipped above 90% width: compacting would just add CPU cost for negligible saving there.
+         * r23's own result: this made the AVERAGE slightly better but the MAX dramatically worse per byte (48.28 ms for only 67500 px, vs r22's
+         * 52.95 ms for a full 2073600 px screen - ~30x fewer bytes, almost the same time). Leading theory: a narrow-but-tall compacted update
+         * crosses many more of this tiled GPU's internal texture tile boundaries per byte than a wide update does - width/height are now
+         * recorded at min/max (below) to confirm this shape theory directly instead of guessing further. */
+        uploaded_w = w;
+        size_t need = (size_t)w * h;
+        if (nxpl_scratch_len < need) {
+            g_free(nxpl_scratch);
+            nxpl_scratch = g_new(guint32, need);
+            nxpl_scratch_len = need;
+        }
+        for (int row = 0; row < h; row++)
+            memcpy(nxpl_scratch + (size_t)row * w, out.conv + (size_t)(y0 + row) * out.ow + x0, (size_t)w * 4);
+        nxpl_glTexSubImage2D(0x0DE1 /* GL_TEXTURE_2D */, 0, x0, y0, w, h, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */, nxpl_scratch);
+    } else {
+        uploaded_w = out.ow;
+        nxpl_glTexSubImage2D(0x0DE1 /* GL_TEXTURE_2D */, 0, 0, y0, out.ow, h, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */,
+            out.conv + (size_t)y0 * out.ow);
+    }
+    /* no glClear: the quad below always covers the whole screen, so every pixel is overwritten regardless - a clear first is pure wasted GPU
+     * time before every swap, and one more thing that can cost a frame's timing budget on this SoC */
+    nxpl_glDrawArrays(5 /* GL_TRIANGLE_STRIP */, 0, 4);
+    gint64 t1 = g_get_monotonic_time();
+    nxpl_eglSwapBuffers(nxpl_egl_display, nxpl_egl_surface);
+    gint64 t2 = g_get_monotonic_time();
+    nxpl_present_count++;
+    double upload_ms = (t1 - t0) / 1000.0;
+    long upload_px = (long)uploaded_w * h; /* the ACTUAL pixel count uploaded (compacted or full-width) */
+    nxpl_upload_ms += upload_ms;
+    nxpl_swap_ms += (t2 - t1) / 1000.0;
+    if (nxpl_upload_ms_min < 0 || upload_ms < nxpl_upload_ms_min) {
+        nxpl_upload_ms_min = upload_ms; nxpl_upload_px_at_min = upload_px;
+        nxpl_upload_w_at_min = uploaded_w; nxpl_upload_h_at_min = h;
+    }
+    if (upload_ms > nxpl_upload_ms_max) {
+        nxpl_upload_ms_max = upload_ms; nxpl_upload_px_at_max = upload_px;
+        nxpl_upload_w_at_max = uploaded_w; nxpl_upload_h_at_max = h;
+    }
+}
+
+/* Tear down everything nxpl_try_open()/nxpl_finish_open() may have registered/created/shown, in the order Nexus expects (hide -> destroy ->
+ * unregister) - called on normal exit and on any failure partway through nxpl_finish_open(), so nothing is ever left registered or visible. */
+static void nxpl_close(void)
+{
+    if (nxpl_native_window && nxpl_ShowNativeWindowEXT)
+        nxpl_ShowNativeWindowEXT(nxpl_native_window, 0);
+    if (nxpl_native_window && nxpl_DestroyNativeWindow)
+        nxpl_DestroyNativeWindow(nxpl_native_window);
+    nxpl_native_window = NULL;
+    if (nxpl_platform_handle && nxpl_UnregisterNexusDisplayPlatform)
+        nxpl_UnregisterNexusDisplayPlatform(nxpl_platform_handle);
+    nxpl_platform_handle = NULL;
+    fprintf(stderr, "nxpl: released the Nexus display\n");
+}
+
 static void out_scale_rect(int rx, int ry, int rw, int rh);
 
 /* The application has grown too big for pictures (a colour key opened its whole user interface): enigma2 makes a texture of every picture, at this size faster
@@ -456,6 +820,10 @@ static void png_promote(void)
  * there before (same page) or clear our area to transparent (other pages, where the old pixels are stale). */
 static void fb_restore_area(void)
 {
+    if (out.nxpl_on) {
+        nxpl_close();
+        return;
+    }
     if (!out.fb_on)
         return;
     if (out.png_prefix) {
@@ -545,6 +913,8 @@ static void out_scale_rect(int rx, int ry, int rw, int rh)
     if (out.fb_on) {
         fb_read_var();
         fb_write_rect(out.vinfo.yoffset, ox0, oy0, ox1 - ox0, oy1 - oy0);
+    } else if (out.nxpl_on) {
+        nxpl_mark_dirty(ox0, oy0, ox1, oy1);
     }
 }
 
@@ -566,18 +936,23 @@ static void out_blit_rect(const guint8 *src, int stride, int rx, int ry, int rw,
             out_scale_rect(rx, ry, rw, rh);
         return;
     }
-    if (!out.fb_on)
+    if (!out.fb_on && !out.nxpl_on)
         return;
 
-    /* convert the damaged rows into the framebuffer format once, then copy them to the visible page */
+    /* convert the damaged rows into the framebuffer format once, then copy them to the visible page (fb0) or mark the frame dirty for the
+     * next nxpl_present() (NXPL/Nexus) */
     for (int row = 0; row < rh; row++) {
         /* --unpremul-from-y: rows from that view row on are converted to straight alpha (side-by-side alpha test) */
         if (out.unpremul_from_y >= 0)
             out.unpremul = (ry + row) >= out.unpremul_from_y;
         convert_pixels(out.conv + (size_t)(ry + row) * out.w + rx, src + (size_t)(ry + row) * stride + (size_t)rx * 4, rw);
     }
-    fb_read_var(); /* the visible page can change under us when the owner flips; the guard notices and repaints */
-    fb_write_rect(out.vinfo.yoffset, rx, ry, rw, rh);
+    if (out.fb_on) {
+        fb_read_var(); /* the visible page can change under us when the owner flips; the guard notices and repaints */
+        fb_write_rect(out.vinfo.yoffset, rx, ry, rw, rh);
+    } else {
+        nxpl_mark_dirty(rx, ry, rx + rw, ry + rh);
+    }
 }
 
 /* ------------------------------------------------------------------------- the custom WPE platform ---- */
@@ -635,6 +1010,8 @@ static gboolean view_render_buffer(WPEView *v, WPEBuffer *buffer, const WPERecta
         }
     }
     g_bytes_unref(bytes);
+    if (out.nxpl_on)
+        nxpl_present(); /* one upload+swap per frame, after all of this frame's damage rects were converted into out.conv above */
 
     gint64 t1 = g_get_monotonic_time();
     out.frames++;
@@ -1521,10 +1898,20 @@ int main(int argc, char **argv)
     }
 
     if (want_fb) {
-        /* straight alpha is what this display expects (verified on a DM900): convert unless told otherwise */
+        /* straight alpha is what this display expects (verified on a DM900, and it's what nxpl_try_open()'s own RGBA pixel layout also expects
+         * via convert_pixels()): convert unless told otherwise */
         if (!force_premul)
             out.unpremul = TRUE;
-        if (!fb_open())
+        /* On a Nexus-middleware box (GigaBlue), /dev/fb0 is not connected to the real display scanout at all - confirmed on real hardware
+         * 2026-09-23 (see the "NXPL/Nexus presentation backend" section above and project memory project_hbbtv2_wpe_orb_plan.md). Try that path
+         * first: nxpl_try_open() is a pure runtime probe (dlopen/dlsym only) that safely returns FALSE, with nothing left registered, on any box
+         * without Nexus - the DM900 falls straight through to the existing /dev/fb0 path, completely unchanged. --overlay-png always uses the
+         * /dev/fb0-based PNG-dump path (a different embedding style entirely, for the enigma2 skin-overlay plugin mode) regardless of platform. */
+        if (!out.png_prefix && nxpl_try_open())
+            out.nxpl_on = TRUE;
+        else if (fb_open())
+            out.fb_on = TRUE;
+        else
             return 1;
         if (fullscreen) /* the whole screen, in the view's aspect ratio */
             out.scale = MIN((double)out.vinfo.xres / out.w, (double)out.vinfo.yres / out.h);
@@ -1532,8 +1919,14 @@ int main(int argc, char **argv)
         out.oh = (int)(out.h * out.scale + 0.5);
         out.fb_x = px >= 0 ? px : ((int)out.vinfo.xres - out.ow) / 2;
         out.fb_y = py >= 0 ? py : ((int)out.vinfo.yres - out.oh) / 2;
-        fb_save_area();
+        if (out.fb_on)
+            fb_save_area();
         out.conv = g_malloc0((size_t)out.ow * out.oh * 4);
+        if (out.nxpl_on && !nxpl_finish_open()) {
+            fprintf(stderr, "nxpl: window/EGL setup failed after a successful register - aborting (see the messages above)\n");
+            nxpl_close();
+            return 1;
+        }
         if (out.png_prefix) {
             /* the pixels are made straight-alpha ARGB whatever the framebuffer's own format, and the framebuffer is left alone */
             out.vinfo.red.offset = 16; out.vinfo.green.offset = 8; out.vinfo.blue.offset = 0; out.vinfo.transp.offset = 24;
@@ -1541,10 +1934,14 @@ int main(int argc, char **argv)
             no_guard = TRUE;
             fprintf(stderr, "overlay: the frame goes to %s_<n>.png, not to the framebuffer\n", out.png_prefix);
         }
-        out.guard = !no_guard;
-        out.last_page = out.vinfo.yoffset / out.vinfo.yres;
-        out.fb_on = TRUE;
-        fprintf(stderr, "fb: frame goes to (%d,%d), %dx%d (scale %.3f)\n", out.fb_x, out.fb_y, out.ow, out.oh, out.scale);
+        /* the guard (repairing pages enigma2 flips/overwrites under us) is a /dev/fb0-only concern: an nxpl window is Nexus's own, exclusively
+         * registered surface - nothing else should be drawing into it */
+        out.guard = out.fb_on && !no_guard;
+        out.last_page = out.fb_on ? out.vinfo.yoffset / out.vinfo.yres : 0;
+        if (out.nxpl_on)
+            fprintf(stderr, "nxpl: frame goes to an NXPL Nexus window at (%d,%d), %dx%d (scale %.3f)\n", out.fb_x, out.fb_y, out.ow, out.oh, out.scale);
+        else
+            fprintf(stderr, "fb: frame goes to (%d,%d), %dx%d (scale %.3f)\n", out.fb_x, out.fb_y, out.ow, out.oh, out.scale);
     } else {
         out.ow = (int)(out.w * out.scale + 0.5);
         out.oh = (int)(out.h * out.scale + 0.5);
@@ -1563,8 +1960,8 @@ int main(int argc, char **argv)
         char scale_text[16];
         snprintf(scale_text, sizeof scale_text, "%.6f", out.scale);
         g_setenv("WPE_DREAM_VIDEO_SCALE", scale_text, TRUE); /* a <video> rectangle is in view pixels, the screen is `scale` times larger */
-        snprintf(origin, sizeof origin, "%d,%d", out.fb_on ? out.fb_x : 0, out.fb_on ? out.fb_y : 0);
-        snprintf(screen, sizeof screen, "%dx%d", out.fb_on ? (int)out.vinfo.xres : 1920, out.fb_on ? (int)out.vinfo.yres : 1080);
+        snprintf(origin, sizeof origin, "%d,%d", (out.fb_on || out.nxpl_on) ? out.fb_x : 0, (out.fb_on || out.nxpl_on) ? out.fb_y : 0);
+        snprintf(screen, sizeof screen, "%dx%d", (out.fb_on || out.nxpl_on) ? (int)out.vinfo.xres : 1920, (out.fb_on || out.nxpl_on) ? (int)out.vinfo.yres : 1080);
         g_setenv("WEBKIT_GST_QUIRKS", "dreambox", TRUE);
         g_setenv("WEBKIT_GST_HOLE_PUNCH_QUIRK", "dreambox", TRUE);
         g_setenv("WPE_DREAM_VIDEO_ORIGIN", origin, TRUE);
@@ -1816,6 +2213,13 @@ int main(int argc, char **argv)
     fprintf(stderr, "== sink: %llu frames delivered, %.1f fps, %.0f px/frame average (%.1f%% of the view), %.2f ms per frame copy\n",
         (unsigned long long)out.frames, secs_run > 0 ? (out.frames - 1) / secs_run : 0.0, out.frames ? (double)out.pixels / out.frames : 0.0,
         out.frames ? 100.0 * out.pixels / out.frames / ((double)out.w * out.h) : 0.0, out.frames ? out.blit_ms / out.frames : 0.0);
+    if (out.nxpl_on && nxpl_present_count)
+        fprintf(stderr, "== nxpl: %llu presents, %.2f ms avg upload+draw (CPU-side GL submission), %.2f ms avg eglSwapBuffers\n",
+            (unsigned long long)nxpl_present_count, nxpl_upload_ms / nxpl_present_count, nxpl_swap_ms / nxpl_present_count);
+    if (out.nxpl_on && nxpl_present_count)
+        fprintf(stderr, "== nxpl: upload+draw min %.2f ms (%ld px, %dx%d), max %.2f ms (%ld px, %dx%d)\n",
+            nxpl_upload_ms_min, nxpl_upload_px_at_min, nxpl_upload_w_at_min, nxpl_upload_h_at_min,
+            nxpl_upload_ms_max, nxpl_upload_px_at_max, nxpl_upload_w_at_max, nxpl_upload_h_at_max);
 
     {
         /* alpha statistics of the final canvas (premultiplied BGRA as delivered by WPE) */

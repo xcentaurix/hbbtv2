@@ -19,29 +19,88 @@ project_hbbtv2_wpe_orb_plan.md for the full trace through dynsym_dump symbol lis
    single-process-only NEXUS_Display_Open() - passing NULL works and was verified end-to-end: eglInitialize() succeeds (EGL 1.5) immediately after
    this call, in an isolated test tool, with the live TV picture confirmed unaffected during the test.
 
-Fix: PlatformDisplayDefault::create() - the one place this fork's EGL bring-up goes through for every board, Nexus-based or not - now does the
-join+register sequence once per process before its existing eglGetDisplay(EGL_DEFAULT_DISPLAY) call, and unregisters in the destructor. Pure runtime
-detection via dlopen/dlsym: no Nexus SDK headers and no link-time dependency on libnxclient.so/libnxpl.so, so this is a true no-op - confirmed via a
-regression test on the DM900 that produces zero related log output - on any platform without them (this fork's other target, the DM900's
-libvc5dream stack, has no Nexus/NxClient/NXPL at all).
+v1 of this patch only hooked PlatformDisplayDefault::create() and, deployed to a real GigaBlue box, the WebProcess still crashed with the identical
+assertion. Root cause: WebProcess::platformInitializeWebProcess() constructs a PlatformDisplayLibWPE directly whenever a WPE Platform API renderer
+backend is in use (m_rendererBufferTransportMode empty) - which is exactly this fork's own situation (the wpe_fb embedder) - and does NOT go through
+PlatformDisplayDefault/initializePlatformDisplayIfNeeded() at all in that case. PlatformDisplayLibWPE::create() calls eglGetDisplay()/
+eglGetPlatformDisplayEXT() directly, bypassing the original fix entirely. The standalone vu_egl_probe.c test that verified the underlying
+NxClient_Join+NXPL_RegisterNexusDisplayPlatform sequence never caught this, because it calls EGL directly too, with no libwpe involved - it proved
+the fix works, not that it was wired into the code path WebKit actually uses.
+
+Fix (v2): the join+register logic now lives in a small shared header (NexusEGLPlatformQuirk.h) and is called from BOTH PlatformDisplayLibWPE::create()
+(the real path) and PlatformDisplayDefault::create() (the generic fallback, kept in case some other WPE embedder/configuration on this fork ever
+takes that path), each unregistering in its own destructor. Pure runtime detection via dlopen/dlsym, no Nexus SDK headers and no link-time dependency
+on libnxclient.so/libnxpl.so, so this is a true no-op - confirmed via a regression test on the DM900 (which has neither library) that produces zero
+related log output through either PlatformDisplay class - on any platform without them.
+
+v2 (r8), deployed to a real GigaBlue box, made real progress: the WebProcess now got as far as loading a real page and starting an ORB application
+(RunApp/CreateApplication all succeeded) before the identical "Memory interface not registered" abort - and the log confirmed NxClient_Join()
+actually ran and returned 0 this time. But the expected "NXPL_RegisterNexusDisplayPlatform() -> handle=..." line never appeared, with no error
+either: the dlopen("libnxpl.so")/dlsym() step was failing silently, and v2 had no diagnostics for that failure mode at all.
+
+Fix (v3): every failure branch (both libraries, both dlopen and dlsym) now logs via dlerror()/a named message, so the next capture says exactly
+which step failed and why instead of going silent. Also added an explicit dlopen("libnexus.so", RTLD_NOW|RTLD_GLOBAL) before libnxpl.so: libnxpl.so's
+own dynamic symbol table (confirmed via dynsym_dump, see project memory) imports many libnexus.so symbols directly (NEXUS_Graphicsv3d_*/
+NEXUS_Surface_*/NEXUS_MemoryBlock_* etc.) that RTLD_NOW must resolve immediately, unlike libnxclient.so's smaller, more self-contained symbol set -
+a missing libnexus.so at that point would explain libnxpl.so's dlopen failing where libnxclient.so's just-preceding one did not. Harmless either way
+(a no-op refcount bump if libnexus.so is already loaded by something else). Regression-tested on the DM900 again: all three new dlopen attempts fail
+cleanly and are logged (confirmed neither library exists there, exactly as expected), page still loads normally, no regression.
+
+v3 (r9), deployed to a real GigaBlue box, gave the actual answer: "dlopen(\"libnxpl.so\") failed: /usr/lib/libnxpl.so: undefined symbol:
+BEGL_PlatformAboutToShutdown". That symbol is exported by libv3ddriver.so (= libEGL.so/libGLESv2.so on this box), which libnxpl.so also imports -
+but this build uses libepoxy (USE(LIBEPOXY) in PlatformDisplayLibWPE.cpp), which lazily dlopens the real vendor libEGL.so/libGLESv2.so on the FIRST
+actual EGL call, not at process startup. ensureNexusPlatformJoined() runs BEFORE any EGL call by design, so libv3ddriver.so simply wasn't loaded yet
+at that point - explaining why NxClient_Join (needing only libnxclient.so's own, self-contained symbols) succeeded while libnxpl.so's dlopen(RTLD_NOW),
+needing BEGL_* symbols from a library nothing had loaded yet, failed. This is exactly what tools/vuplus-probe/vu_egl_probe.c already does (and which
+worked end-to-end, verified 2026-09-23): its own very first step dlopens an EGL-providing library, before any Nexus join/register call, so
+libv3ddriver.so is already loaded as a side effect by the time it reaches NXPL_RegisterNexusDisplayPlatform.
+
+Fix (v4): explicitly preload an EGL-providing library (same fallback name list as the probe: libEGL.so.1, libEGL.so, libv3ddriver.so - some
+Nexus-based Broadcom images have no libEGL.so at all) right before libnxpl.so. Regression-tested on the DM900 again: the preload succeeds there
+(finds the DM900's own libEGL.so, harmless), libnxpl.so still fails cleanly afterward (doesn't exist on DM900), page loads normally, no regression.
 
 ---
-diff --git a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
-index 72b3bf9d..c50da7ea 100644
---- a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
-+++ b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
-@@ -31,10 +31,73 @@
- #include "GLContext.h"
- #include <epoxy/egl.h>
-
+diff --git a/Source/WebCore/platform/graphics/NexusEGLPlatformQuirk.h b/Source/WebCore/platform/graphics/NexusEGLPlatformQuirk.h
+new file mode 100644
+index 00000000..e11cc9da
+--- /dev/null
++++ b/Source/WebCore/platform/graphics/NexusEGLPlatformQuirk.h
+@@ -0,0 +1,145 @@
++/*
++ * Copyright (C) 2026 xcentaurix
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#pragma once
++
 +#if PLATFORM(WPE)
++
 +#include <cstring>
 +#include <dlfcn.h>
-+#endif
++#include <wtf/Assertions.h>
 +
- namespace WebCore {
-
-+#if PLATFORM(WPE)
++namespace WebCore {
++
 +// Nexus-based Broadcom boxes (GigaBlue gbquad4kpro confirmed 2026-09-23; likely other Nexus-middleware boxes too, e.g. VU+
 +// Ultimo 4K - same "Memory interface not registered" signature, not yet retested with this exact fix) need two calls before
 +// any EGL call can succeed: NxClient_Join() (join the Nexus client/server IPC bus - necessary but, confirmed by testing, NOT
@@ -57,16 +116,27 @@ index 72b3bf9d..c50da7ea 100644
 +// tools/vuplus-probe in the hbbtv2 repo before being written here - see that tool's vu_egl_probe.c for the exact sequence
 +// this mirrors, and project memory (project_hbbtv2_wpe_orb_plan.md) for the full trace through Broadcom's own header dump
 +// that found NXPL_RegisterNexusDisplayPlatform in the first place.
-+static void* s_nxplPlatformHandle;
-+static void (*s_nxplUnregisterDisplayPlatform)(void*);
++//
++// Called from every PlatformDisplay subclass this fork's WebProcess might actually instantiate for its EGL display -
++// PlatformDisplayLibWPE (the real path when a WPE Platform API renderer backend is in use, e.g. this project's own wpe_fb
++// embedder) and PlatformDisplayDefault (the generic eglGetDisplay(EGL_DEFAULT_DISPLAY) fallback) both need it: which one
++// runs is decided by WebProcess::platformInitializeWebProcess() based on m_rendererBufferTransportMode, not something either
++// class controls itself, so the quirk has to live at this shared, lower level rather than in just one of them.
++inline void* nexusPlatformHandle;
++inline void (*nexusPlatformUnregister)(void*);
 +
-+static void ensureNexusPlatformJoined()
++inline void ensureNexusPlatformJoined()
 +{
 +    static bool attempted = false;
 +    if (attempted)
 +        return;
 +    attempted = true;
 +
++    // 2026-09-23 GigaBlue history: r8 (v2) got NxClient_Join() running and succeeding (logged "returned 0") but the
++    // expected "NXPL_RegisterNexusDisplayPlatform() -> handle=..." line never appeared, with no diagnostics at the time to
++    // say why. r9 (v3) added dlerror()-based logging to every failure branch below, which caught the real answer on the
++    // very next test: "dlopen(\"libnxpl.so\") failed: /usr/lib/libnxpl.so: undefined symbol: BEGL_PlatformAboutToShutdown"
++    // - see the comment further down, right before the libEGL preload loop, for the actual explanation and fix (r10).
 +    if (void* nxclient = dlopen("libnxclient.so", RTLD_NOW | RTLD_GLOBAL)) {
 +        auto getDefaultJoinSettings = reinterpret_cast<void (*)(void*)>(dlsym(nxclient, "NxClient_GetDefaultJoinSettings"));
 +        auto join = reinterpret_cast<int (*)(const void*)>(dlsym(nxclient, "NxClient_Join"));
@@ -80,21 +150,81 @@ index 72b3bf9d..c50da7ea 100644
 +            getDefaultJoinSettings(joinSettings);
 +            int rc = join(joinSettings);
 +            WTFLogAlways("NxClient_Join() returned %d (0 = NEXUS_SUCCESS)", rc);
++        } else {
++            WTFLogAlways("libnxclient.so loaded but dlsym failed: GetDefaultJoinSettings=%p Join=%p",
++                (void*)getDefaultJoinSettings, (void*)join);
 +        }
-+    }
++    } else
++        WTFLogAlways("dlopen(\"libnxclient.so\") failed: %s", dlerror());
++
++    // libnxpl.so's own dynamic symbol table (confirmed via dynsym_dump, see project memory) imports many libnexus.so
++    // symbols directly (NEXUS_Graphicsv3d_*/NEXUS_Surface_*/NEXUS_MemoryBlock_* etc., not just the smaller libnxclient.so
++    // IPC-client surface NxClient_Join() above needs) - RTLD_NOW below must resolve all of them immediately, so make sure
++    // libnexus.so is already loaded first. Harmless if it already is (dlopen just bumps a refcount and returns the same
++    // handle); this dlopen's own success/failure is logged too since libnexus.so missing would explain libnxpl.so's dlopen
++    // failing where libnxclient.so's did not.
++    if (!dlopen("libnexus.so", RTLD_NOW | RTLD_GLOBAL))
++        WTFLogAlways("dlopen(\"libnexus.so\") failed: %s", dlerror());
++
++    // 2026-09-23 GigaBlue, r9: confirmed the actual cause - "dlopen(\"libnxpl.so\") failed: /usr/lib/libnxpl.so: undefined
++    // symbol: BEGL_PlatformAboutToShutdown". That symbol is exported by libv3ddriver.so (= libEGL.so/libGLESv2.so on this
++    // box), which libnxpl.so also imports - but this build uses libepoxy (see USE(LIBEPOXY) in PlatformDisplayLibWPE.cpp),
++    // which lazily dlopens the real vendor libEGL.so/libGLESv2.so on the FIRST actual EGL call, not at process startup.
++    // ensureNexusPlatformJoined() runs BEFORE any EGL call, by design (that's the whole point), so libv3ddriver.so simply
++    // isn't loaded yet at this point - explaining why NxClient_Join (needing only libnxclient.so's own, self-contained
++    // symbols) succeeded while dlopen(RTLD_NOW) of libnxpl.so, needing BEGL_* symbols from a library nothing has loaded
++    // yet, failed. This mirrors exactly what tools/vuplus-probe/vu_egl_probe.c does (and which DID work end-to-end,
++    // verified 2026-09-23): its own very first step dlopens an EGL-providing library, before any Nexus join/register call
++    // - so by the time it reaches NXPL_RegisterNexusDisplayPlatform, libv3ddriver.so is already loaded as a side effect.
++    // Same fallback name list as that probe, for the same reason (some Nexus-based Broadcom images have no libEGL.so at
++    // all, per the probe's own doc comment).
++    static const char* const eglLibraryNames[] = { "libEGL.so.1", "libEGL.so", "libv3ddriver.so", nullptr };
++    bool eglLibraryLoaded = false;
++    for (int i = 0; eglLibraryNames[i] && !eglLibraryLoaded; ++i)
++        eglLibraryLoaded = dlopen(eglLibraryNames[i], RTLD_NOW | RTLD_GLOBAL);
++    if (!eglLibraryLoaded)
++        WTFLogAlways("could not preload any EGL-providing library (tried libEGL.so.1, libEGL.so, libv3ddriver.so) before libnxpl.so: %s", dlerror());
 +
 +    if (void* nxpl = dlopen("libnxpl.so", RTLD_NOW | RTLD_GLOBAL)) {
 +        auto registerDisplayPlatform = reinterpret_cast<void (*)(void**, void*)>(dlsym(nxpl, "NXPL_RegisterNexusDisplayPlatform"));
-+        s_nxplUnregisterDisplayPlatform = reinterpret_cast<void (*)(void*)>(dlsym(nxpl, "NXPL_UnregisterNexusDisplayPlatform"));
-+        if (registerDisplayPlatform && s_nxplUnregisterDisplayPlatform) {
-+            registerDisplayPlatform(&s_nxplPlatformHandle, nullptr);
-+            WTFLogAlways("NXPL_RegisterNexusDisplayPlatform() -> handle=%p", s_nxplPlatformHandle);
-+        } else
-+            s_nxplUnregisterDisplayPlatform = nullptr;
++        nexusPlatformUnregister = reinterpret_cast<void (*)(void*)>(dlsym(nxpl, "NXPL_UnregisterNexusDisplayPlatform"));
++        if (registerDisplayPlatform && nexusPlatformUnregister) {
++            registerDisplayPlatform(&nexusPlatformHandle, nullptr);
++            WTFLogAlways("NXPL_RegisterNexusDisplayPlatform() -> handle=%p", nexusPlatformHandle);
++        } else {
++            WTFLogAlways("libnxpl.so loaded but dlsym failed: Register=%p Unregister=%p",
++                (void*)registerDisplayPlatform, (void*)nexusPlatformUnregister);
++            nexusPlatformUnregister = nullptr;
++        }
++    } else
++        WTFLogAlways("dlopen(\"libnxpl.so\") failed: %s", dlerror());
++}
++
++inline void unregisterNexusPlatformIfJoined()
++{
++    if (nexusPlatformUnregister && nexusPlatformHandle) {
++        nexusPlatformUnregister(nexusPlatformHandle);
++        nexusPlatformHandle = nullptr;
 +    }
 +}
-+#endif // PLATFORM(WPE)
 +
++} // namespace WebCore
++
++#endif // PLATFORM(WPE)
+diff --git a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
+index 72b3bf9d..d7afbbdf 100644
+--- a/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
++++ b/Source/WebCore/platform/graphics/egl/PlatformDisplayDefault.cpp
+@@ -31,10 +31,18 @@
+ #include "GLContext.h"
+ #include <epoxy/egl.h>
+
++#if PLATFORM(WPE)
++#include "NexusEGLPlatformQuirk.h"
++#endif
++
+ namespace WebCore {
+
  std::unique_ptr<PlatformDisplayDefault> PlatformDisplayDefault::create()
  {
 +#if PLATFORM(WPE)
@@ -104,7 +234,7 @@ index 72b3bf9d..c50da7ea 100644
      auto glDisplay = GLDisplay::create(eglGetDisplay(EGL_DEFAULT_DISPLAY));
      if (!glDisplay) {
          WTFLogAlways("Could not create default EGL display: %s. Aborting...", GLContext::lastErrorString());
-@@ -53,7 +116,15 @@ PlatformDisplayDefault::PlatformDisplayDefault(Ref<GLDisplay>&& glDisplay)
+@@ -53,7 +61,12 @@ PlatformDisplayDefault::PlatformDisplayDefault(Ref<GLDisplay>&& glDisplay)
  #endif
  }
 
@@ -112,12 +242,53 @@ index 72b3bf9d..c50da7ea 100644
 +PlatformDisplayDefault::~PlatformDisplayDefault()
 +{
 +#if PLATFORM(WPE)
-+    if (s_nxplUnregisterDisplayPlatform && s_nxplPlatformHandle) {
-+        s_nxplUnregisterDisplayPlatform(s_nxplPlatformHandle);
-+        s_nxplPlatformHandle = nullptr;
-+    }
++    unregisterNexusPlatformIfJoined();
 +#endif
 +}
 
  } // namespace WebCore
 
+diff --git a/Source/WebCore/platform/graphics/libwpe/PlatformDisplayLibWPE.cpp b/Source/WebCore/platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
+index 39e037f4..b3462b64 100644
+--- a/Source/WebCore/platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
++++ b/Source/WebCore/platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
+@@ -30,6 +30,10 @@
+
+ #include "GLContext.h"
+
++#if PLATFORM(WPE)
++#include "NexusEGLPlatformQuirk.h"
++#endif
++
+ #if USE(LIBEPOXY)
+ // FIXME: For now default to the GBM EGL platform, but this should really be
+ // somehow deducible from the build configuration.
+@@ -55,6 +59,17 @@ namespace WebCore {
+
+ std::unique_ptr<PlatformDisplayLibWPE> PlatformDisplayLibWPE::create(int hostFd)
+ {
++#if PLATFORM(WPE)
++    // This is the code path actually used whenever a WPE Platform API renderer backend is in play (e.g. this fork's own
++    // wpe_fb embedder) - see WebProcess::platformInitializeWebProcess(), which constructs a PlatformDisplayLibWPE directly
++    // and does NOT go through PlatformDisplayDefault/initializePlatformDisplayIfNeeded() at all in that case. On a
++    // Nexus-based Broadcom box this must run before wpe_renderer_backend_egl_create()/eglGetDisplay() below, or
++    // eglInitialize() aborts with "Memory interface not registered" - confirmed on a real GigaBlue box 2026-09-23 (the
++    // standalone vu_egl_probe.c test that first verified this fix does not go through libwpe at all, so it never caught
++    // that PlatformDisplayDefault - the only place the fix was originally added - isn't actually reachable here).
++    ensureNexusPlatformJoined();
++#endif
++
+     auto* backend = wpe_renderer_backend_egl_create(hostFd);
+     if (!backend)
+         return nullptr;
+@@ -112,6 +127,9 @@ PlatformDisplayLibWPE::~PlatformDisplayLibWPE()
+ {
+     if (m_backend)
+         wpe_renderer_backend_egl_destroy(m_backend);
++#if PLATFORM(WPE)
++    unregisterNexusPlatformIfJoined();
++#endif
+ }
+
+ } // namespace WebCore
+</content>

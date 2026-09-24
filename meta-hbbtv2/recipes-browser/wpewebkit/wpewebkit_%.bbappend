@@ -74,10 +74,20 @@ python () {
 #       unbounded prefetch removes the starvation itself; as a side effect for progressive MP4, qtdemux also falls back to its simpler
 #       push-mode/adapter state machine (transitions to MOVIE state right after moov, no full-file scan needed). 0014/0015 stay as a safety
 #       net for any other timing collision on the same shared mutex; they should now rarely if ever trigger.
-# 0017: PlatformDisplayDefault::create() joins Nexus (NxClient_Join) and registers the EGL memory/display interface
-#       (NXPL_RegisterNexusDisplayPlatform, libnxpl.so) before its existing eglGetDisplay() call, fixing "Memory interface not registered" /
-#       eglInitialize abort on Nexus-based Broadcom boxes (GigaBlue gbquad4kpro confirmed 2026-09-23 via tools/vuplus-probe). Pure runtime
-#       dlopen/dlsym detection, no link-time dependency - true no-op on the DM900 (libvc5dream, no Nexus at all), regression-tested clean.
+# 0017: joins Nexus (NxClient_Join) and registers the EGL memory/display interface (NXPL_RegisterNexusDisplayPlatform, libnxpl.so) before
+#       any EGL call, fixing "Memory interface not registered" / eglInitialize abort on Nexus-based Broadcom boxes (GigaBlue gbquad4kpro).
+#       v1 (r7) only hooked PlatformDisplayDefault::create() and still crashed on a real GigaBlue box - WebProcess::platformInitializeWebProcess()
+#       actually constructs a PlatformDisplayLibWPE directly whenever a WPE Platform API renderer backend is in use (this fork's own wpe_fb
+#       embedder always is), never touching PlatformDisplayDefault at all. v2 (r8) moves the logic into a shared header
+#       (NexusEGLPlatformQuirk.h) and hooks both PlatformDisplayLibWPE::create() (the real path) and PlatformDisplayDefault::create() (kept as
+#       a fallback). Pure runtime dlopen/dlsym detection, no link-time dependency - true no-op on the DM900 (libvc5dream, no Nexus at all),
+#       regression-tested clean through both classes after the fix. v3 (r9) added dlerror()-based diagnostics to every failure branch and a
+#       speculative libnexus.so preload; deployed to a real GigaBlue box, the diagnostics caught the actual cause: libnxpl.so's dlopen(RTLD_NOW)
+#       failed on an undefined symbol, BEGL_PlatformAboutToShutdown (exported by libv3ddriver.so/libEGL.so, not yet loaded at that point because
+#       this build's libepoxy lazily dlopens the real vendor EGL library only on the first actual EGL call, and the Nexus join/register logic
+#       deliberately runs before any EGL call). v4 (r10) fixes it: explicitly preload an EGL-providing library (libEGL.so.1, libEGL.so, then
+#       libv3ddriver.so as a last resort) immediately before dlopen("libnxpl.so"), mirroring the exact sequence already proven to work end-to-end
+#       in tools/vuplus-probe/vu_egl_probe.c. Regression-tested clean on the DM900 (freshly reflashed); GigaBlue confirmation still pending.
 
 # Vendor eglplatform.h falls back to X11 types unless BROADCOM_PLATFORM is set
 # (see the libepoxy bbappend).
@@ -123,7 +133,38 @@ PARALLEL_MAKE = "-j 6 -k 0"
 # r6: patch 0016 (bounded buffering instead of unbounded "download" mode) - the real fix: >=4GiB progressive MP4 playback silently never
 # starting, verified 2026-09-23 against a synthetic 5,014,522,180-byte file (matching a real failing ZDF film's size) and its
 # 4,238,966,549-byte (working) counterpart; both now reach MOVIE state and deliver frames within ~5s, reproducibly.
-# r7: patch 0017 (join + register with Nexus before any EGL call) - fixes eglInitialize's "Memory interface not registered" abort on
-# Nexus-based Broadcom boxes (GigaBlue confirmed via tools/vuplus-probe). Regression-tested on the DM900 (no Nexus libs, confirmed
-# no-op) - not yet tested on an actual Nexus-based box with the full WebKit path (only the standalone probe confirmed the sequence).
-PKGR = "r7"
+# r7: patch 0017 v1 - BROKEN, DO NOT USE. Only hooked PlatformDisplayDefault::create(); installed on a real GigaBlue box (via
+# opkg install --force-depends, see below) and the WebProcess still crashed with the identical "Memory interface not registered" abort,
+# because PlatformDisplayLibWPE::create() (the class actually constructed whenever a WPE Platform API renderer backend is in use, i.e.
+# always for this fork's own wpe_fb embedder) never goes through PlatformDisplayDefault at all. Left installed on the box briefly during
+# diagnosis; superseded by r8 below.
+# r8: patch 0017 v2 - real progress but not the whole fix. Same join+register sequence, now in a shared header
+# (NexusEGLPlatformQuirk.h) called from BOTH PlatformDisplayLibWPE::create() (the real path) and PlatformDisplayDefault::create()
+# (fallback). Regression-tested clean on DM900. On a real GigaBlue box: NxClient_Join() confirmed running and returning 0 (real
+# progress - WebProcess got as far as loading a page and starting an ORB app before crashing, vs. immediately before), but the
+# expected NXPL_RegisterNexusDisplayPlatform() log line never appeared and v2 had no diagnostics for why - see r9.
+# NOTE (opkg on non-DM900 boxes, two real gotchas hit installing r7/r8 on GigaBlue): (1) libwpewebkit-2.0-1's auto-generated
+# RDEPENDS on "libgles2" does not resolve on GigaBlue's own feed - it provides the same libEGL.so/libGLESv2.so functionality via
+# its own gb-v3ddriver-gb7252pro package under a different name/Provides (a real packaging gap, no GigaBlue-specific MACHINE/BSP
+# build exists in this project yet; `opkg install --force-depends` is the workaround). (2) `--force-depends` only skips the
+# dependency check for packages named ON THE COMMAND LINE - it does not transitively force-upgrade libwpewebkit-2.0-1 itself
+# unless THAT package is named explicitly too, and plain `opkg install <name>` never upgrades an already-installed package
+# regardless (only `opkg upgrade` compares versions) - this cost a full round of "testing r7/r8" that was actually still
+# exercising the pre-project r0 build. Install/upgrade this package by pointing opkg directly at the .ipk file, or use
+# `opkg upgrade --force-depends libwpewebkit-2.0-1` after `opkg update`; verify with `opkg list-installed | grep wpewebkit`.
+# r9: patch 0017 v3 - diagnostics + a real candidate fix. Every dlopen/dlsym failure branch now logs via dlerror()/a named
+# message (v2 went completely silent on the libnxpl.so step failing, with NxClient_Join's own success proving the code runs).
+# Also added an explicit dlopen("libnexus.so") before libnxpl.so, since libnxpl.so's own symbol table imports many libnexus.so
+# symbols that RTLD_NOW must resolve immediately - a real, evidence-backed candidate for why libnxpl.so's dlopen was failing
+# where libnxclient.so's did not. Regression-tested clean on DM900 (all three new dlopen attempts fail cleanly there, as
+# expected, no crash). GigaBlue confirmation of r9, this time verified actually installed via `opkg list-installed`, found the
+# real cause: dlopen("libnxpl.so") failed with "undefined symbol: BEGL_PlatformAboutToShutdown" - see r10.
+# r10: patch 0017 v4 - the actual fix. BEGL_PlatformAboutToShutdown is exported by libv3ddriver.so/libEGL.so, which this
+# build's libepoxy only dlopens lazily on the first real EGL call - but ensureNexusPlatformJoined() deliberately runs BEFORE
+# any EGL call, so that library isn't loaded yet when libnxpl.so's own dlopen(RTLD_NOW) needs it. Explicitly preload an
+# EGL-providing library (tries libEGL.so.1, then libEGL.so, then libv3ddriver.so) immediately before dlopen("libnxpl.so"),
+# mirroring the exact sequence already verified end-to-end in tools/vuplus-probe/vu_egl_probe.c. Regression-tested clean on a
+# freshly reflashed DM900 (preload finds the DM900's own libEGL.so harmlessly; libnxpl.so still fails cleanly since it
+# doesn't exist there; page loads normally, no regression). GigaBlue confirmation still pending - this is the critical
+# remaining validation step for the whole 0017 saga.
+PKGR = "r10"
