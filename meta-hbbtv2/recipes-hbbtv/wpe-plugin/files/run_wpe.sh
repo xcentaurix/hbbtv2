@@ -29,7 +29,7 @@ CONF=/etc/enigma2/wpehbbtv.conf
 if [ -f "$CONF" ]; then
 	while IFS='=' read -r k v; do
 		case $k in
-		WPE_HIDPI | WPE_FAST_ANIM | WPE_PERSIST | WPE_PERSIST_DIR | WPE_DEBUG | WPE_LIMIT_REPEAT) eval "[ -n \"\${$k}\" ] || $k=\$v" ;;
+		WPE_HIDPI | WPE_FAST_ANIM | WPE_PERSIST | WPE_PERSIST_DIR | WPE_DEBUG | WPE_LIMIT_REPEAT | WPE_EGL) eval "[ -n \"\${$k}\" ] || $k=\$v" ;;
 		esac
 	done <"$CONF"
 fi
@@ -37,6 +37,11 @@ case "$WPE_HIDPI" in 1 | 1.0 | 1.25 | 1.5) ;; *) WPE_HIDPI=1.5 ;; esac
 WPE_PERSIST_DIR=${WPE_PERSIST_DIR:-/media/hdd/.wpe-data}
 case "$WPE_PERSIST_DIR" in /*[!A-Za-z0-9_./-]* | [!/]*) WPE_PERSIST_DIR=/media/hdd/.wpe-data ;; esac # an absolute plain path, else the default
 OPTS="--hidpi $WPE_HIDPI --transparent --fine-damage"
+# Output: enigma2's own EGL renderer (gEGLDC) composites the page when it listens for it (its wake-up socket exists: window-surface platforms such as
+# the GigaBlue/Nexus boxes) - no second display window, no CPU conversion/scaling here. WPE_EGL=0 forces the old framebuffer / NXPL path, 1 forces this one.
+OUTMODE="--fb --fullscreen"
+[ -z "$WPE_EGL" ] && [ -S /tmp/e2_webov.sock ] && WPE_EGL=1
+[ "$WPE_EGL" = 1 ] && [ "$WPE_OVERLAY" != 1 ] && OUTMODE="--egl-sink"
 [ "$WPE_FAST_ANIM" = 1 ] && OPTS="$OPTS --fast-anim"
 [ "$WPE_DEBUG" = 1 ] || OPTS="$OPTS --no-debug-js"
 [ "$WPE_LIMIT_REPEAT" = 1 ] && OPTS="$OPTS --limit-repeat"
@@ -135,7 +140,7 @@ if [ -n "$APP" ]; then
 	# WPE_OWNER=<pid> (set by the plugin): enigma2's process. When it is gone (a restart of the GUI, a crash) nobody would ever send "quit": wpe_fb and its
 	# web processes stayed behind (300 MB of RAM, the decoder, the FIFOs). A watchdog asks it to end then (SIGTERM = a clean quit), and makes sure.
 	case "$WPE_OWNER" in '' | *[!0-9]*) WPE_OWNER="" ;; esac
-	$WPE_FB $HW --orb "$ORB" --fb --fullscreen $OPTS --ctl $CTL --secs 0 &
+	$WPE_FB $HW --orb "$ORB" $OUTMODE $OPTS --ctl $CTL --secs 0 &
 	WPID=$!
 	if [ -n "$WPE_OWNER" ]; then
 		( while kill -0 "$WPID" 2>/dev/null; do
@@ -151,5 +156,5 @@ if [ -n "$APP" ]; then
 	wait "$WPID"
 	exit $?
 else
-	exec $WPE_FB $HW --fb --fullscreen $OPTS --ctl $CTL --secs 0 "$1"
+	exec $WPE_FB $HW $OUTMODE $OPTS --ctl $CTL --secs 0 "$1"
 fi

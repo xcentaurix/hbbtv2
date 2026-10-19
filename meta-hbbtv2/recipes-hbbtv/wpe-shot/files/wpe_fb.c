@@ -10,6 +10,11 @@
  *     --size WxH        web view size (default 1280x720)
  *     --secs N          run time in seconds (default 10)
  *     --fb              draw to /dev/fb0's visible page (saves and restores the pixels it overwrites)
+ *     --egl-sink        hand the frames to enigma2's own EGL renderer (gEGLDC, lib/gdi/egl/gweb_overlay.*) through shared memory
+ *                       instead of drawing them: the view is rendered at its own size, gEGLDC scales it to the whole OSD canvas on the GPU and
+ *                       blends it over the UI (premultiplied alpha, so a transparent page shows the live picture). No second Nexus window, no CPU
+ *                       conversion/scaling, no upload by this process. --egl-screen WxH (default 1920x1080) is the OSD canvas size, used to place
+ *                       the hardware video hole. Base path /tmp/e2_webov (.shm frame, .sock wake-up), WPE_EGL_PATH overrides.
  *     --pos X,Y         where the frame goes on the framebuffer (default: centred)
  *     --unpremul        convert premultiplied alpha to straight alpha when writing to the framebuffer
  *                       (the default with --fb: the Dreambox display blends with straight alpha)
@@ -66,6 +71,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -108,6 +115,7 @@ typedef struct {
     guint16 *xwt, *ywt; /* ... and the weight (0..256) of the second one */
 
     gboolean fb_on, nxpl_on, unpremul, opaque;
+    gboolean egl_on; /* --egl-sink: the canvas lives in the shared frame handed to gEGLDC */
     int unpremul_from_y; /* -1 = off */
     int fb_fd;
     guint8 *fb_map;
@@ -423,6 +431,134 @@ static gboolean guard_tick(gpointer data)
 {
     guard_check();
     return G_SOURCE_CONTINUE;
+}
+
+/* ------------------------------------------------------------- gEGLDC shared-memory sink (--egl-sink) ---- */
+
+/* Must match gWebOverlayShm in enigma2 (lib/gdi/egl/gweb_overlay.h). */
+typedef struct {
+    guint32 magic, version, width, height, stride, generation, visible;
+    gint32 dst_x, dst_y, dst_w, dst_h;
+    guint32 alpha, lock, dirty;
+    gint32 dirty_y0, dirty_y1;
+    guint32 seq, pid;
+} WebOverlayShm;
+
+#define WOV_MAGIC 0x31564f57u /* "WOV1" */
+#define WOV_VERSION 1u
+#define WOV_HEADER 4096u
+
+static WebOverlayShm *egl_shm;
+static size_t egl_len;
+static char *egl_shm_path;
+static struct sockaddr_un egl_peer;
+static int egl_sock = -1;
+static int egl_screen_w = 1920, egl_screen_h = 1080;
+static gboolean egl_notify_pending;
+
+/* The frame lives in a fresh file that is renamed over the old one: gEGLDC keeps the previous mapping valid (and notices the new inode),
+ * and never finds a truncated file under its feet. The magic is written last. */
+static gboolean egl_open(void)
+{
+    const char *base = g_getenv("WPE_EGL_PATH");
+    if (!base || !*base)
+        base = "/tmp/e2_webov";
+    egl_shm_path = g_strdup_printf("%s.shm", base);
+    char *tmp = g_strdup_printf("%s.shm.%d", base, (int)getpid());
+    egl_len = WOV_HEADER + (size_t)out.w * out.h * 4;
+    int fd = open(tmp, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0 || ftruncate(fd, (off_t)egl_len) < 0) {
+        fprintf(stderr, "egl: cannot create %s: %s\n", tmp, g_strerror(errno));
+        if (fd >= 0)
+            close(fd);
+        g_free(tmp);
+        return FALSE;
+    }
+    void *p = mmap(NULL, egl_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    if (p == MAP_FAILED) {
+        fprintf(stderr, "egl: mmap: %s\n", g_strerror(errno));
+        unlink(tmp);
+        g_free(tmp);
+        return FALSE;
+    }
+    egl_shm = p;
+    memset(egl_shm, 0, WOV_HEADER);
+    egl_shm->version = WOV_VERSION;
+    egl_shm->width = out.w;
+    egl_shm->height = out.h;
+    egl_shm->stride = out.w * 4;
+    egl_shm->generation = 1;
+    egl_shm->alpha = 255;
+    egl_shm->pid = (guint32)getpid();
+    __atomic_store_n(&egl_shm->magic, WOV_MAGIC, __ATOMIC_RELEASE);
+    if (rename(tmp, egl_shm_path) < 0) {
+        fprintf(stderr, "egl: rename to %s: %s\n", egl_shm_path, g_strerror(errno));
+        unlink(tmp);
+        g_free(tmp);
+        return FALSE;
+    }
+    g_free(tmp);
+    out.canvas = (guint8 *)p + WOV_HEADER; /* WPE's frame is copied straight into the shared memory */
+
+    egl_sock = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    memset(&egl_peer, 0, sizeof egl_peer);
+    egl_peer.sun_family = AF_UNIX;
+    snprintf(egl_peer.sun_path, sizeof egl_peer.sun_path, "%s.sock", base);
+    fprintf(stderr, "egl: frame %dx%d in %s (%zu bytes), wake-up socket %s%s\n", out.w, out.h, egl_shm_path, egl_len, egl_peer.sun_path,
+        access(egl_peer.sun_path, F_OK) ? " (not there: enigma2 is not running gEGLDC with the web layer - nothing will be shown)" : "");
+    return TRUE;
+}
+
+static void egl_notify(void)
+{
+    egl_notify_pending = FALSE;
+    if (egl_sock >= 0)
+        sendto(egl_sock, "F", 1, MSG_DONTWAIT, (struct sockaddr *)&egl_peer, sizeof egl_peer); /* a full queue means enigma2 has a wake-up pending anyway */
+}
+
+static void egl_lock(void)
+{
+    while (__atomic_exchange_n(&egl_shm->lock, 1u, __ATOMIC_ACQUIRE))
+        g_usleep(50);
+}
+
+static void egl_unlock(void)
+{
+    __atomic_store_n(&egl_shm->lock, 0u, __ATOMIC_RELEASE);
+}
+
+/* rows [y0, y1) of the canvas were rewritten: they are published only after the copy, so a reader that sees the mark sees the pixels */
+static void egl_mark_dirty(int y0, int y1)
+{
+    egl_lock();
+    if (!egl_shm->dirty || y0 < egl_shm->dirty_y0)
+        egl_shm->dirty_y0 = y0;
+    if (!egl_shm->dirty || y1 > egl_shm->dirty_y1)
+        egl_shm->dirty_y1 = y1;
+    egl_shm->dirty = 1;
+    egl_shm->seq++;
+    egl_unlock();
+    egl_notify_pending = TRUE;
+    if (!egl_shm->visible)
+        __atomic_store_n(&egl_shm->visible, 1u, __ATOMIC_RELEASE); /* from the first frame on */
+}
+
+static void egl_close(void)
+{
+    if (!egl_shm)
+        return;
+    __atomic_store_n(&egl_shm->visible, 0u, __ATOMIC_RELEASE);
+    egl_notify();
+    unlink(egl_shm_path);
+    egl_notify(); /* enigma2 finds the file gone and drops its mapping */
+    munmap(egl_shm, egl_len);
+    egl_shm = NULL;
+    out.canvas = NULL;
+    if (egl_sock >= 0)
+        close(egl_sock);
+    egl_sock = -1;
+    fprintf(stderr, "egl: layer withdrawn\n");
 }
 
 /* ------------------------------------------------------------------- NXPL/Nexus presentation backend ---- */
@@ -820,6 +956,10 @@ static void png_promote(void)
  * there before (same page) or clear our area to transparent (other pages, where the old pixels are stale). */
 static void fb_restore_area(void)
 {
+    if (out.egl_on) {
+        egl_close();
+        return;
+    }
     if (out.nxpl_on) {
         nxpl_close();
         return;
@@ -931,6 +1071,10 @@ static void out_blit_rect(const guint8 *src, int stride, int rx, int ry, int rw,
     for (int row = 0; row < rh; row++)
         memcpy(out.canvas + ((size_t)(ry + row) * out.w + rx) * 4, src + (size_t)(ry + row) * stride + (size_t)rx * 4, (size_t)rw * 4);
 
+    if (out.egl_on) {
+        egl_mark_dirty(ry, ry + rh);
+        return;
+    }
     if (out.scale != 1.0) {
         if (out.conv)
             out_scale_rect(rx, ry, rw, rh);
@@ -1010,6 +1154,8 @@ static gboolean view_render_buffer(WPEView *v, WPEBuffer *buffer, const WPERecta
         }
     }
     g_bytes_unref(bytes);
+    if (out.egl_on && egl_notify_pending)
+        egl_notify(); /* one wake-up per WebKit frame, after all of its damage rects were published */
     if (out.nxpl_on)
         nxpl_present(); /* one upload+swap per frame, after all of this frame's damage rects were converted into out.conv above */
 
@@ -1852,6 +1998,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--dump-out") && i + 1 < argc) dump_out = argv[++i];
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) out.scale = atof(argv[++i]);
         else if (!strcmp(argv[i], "--fullscreen")) fullscreen = TRUE;
+        else if (!strcmp(argv[i], "--egl-sink")) out.egl_on = TRUE;
+        else if (!strcmp(argv[i], "--egl-screen") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &egl_screen_w, &egl_screen_h);
         else if (!strcmp(argv[i], "--hidpi") && i + 1 < argc) hidpi = atof(argv[++i]);
         else if (!strcmp(argv[i], "--fine-damage")) fine = TRUE;
         else if (!strcmp(argv[i], "--transparent")) transparent = TRUE;
@@ -1888,7 +2036,17 @@ int main(int argc, char **argv)
         out.w = (int)(W * hidpi + 0.5); /* buffers of a view with scale F are F times the logical size */
         out.h = (int)(H * hidpi + 0.5);
     }
-    out.canvas = g_malloc0((size_t)out.w * out.h * 4);
+    if (out.egl_on) {
+        /* gEGLDC does the scaling on the GPU: the view is delivered 1:1 whatever --scale/--fb were given */
+        if (want_fb || out.scale != 1.0)
+            fprintf(stderr, "--egl-sink: --fb/--scale/--fullscreen ignored (the frame goes to enigma2 unscaled)\n");
+        want_fb = FALSE;
+        fullscreen = FALSE;
+        out.scale = 1.0;
+        if (!egl_open())
+            return 1;
+    } else
+        out.canvas = g_malloc0((size_t)out.w * out.h * 4);
     if (!want_fb && fullscreen)
         fprintf(stderr, "--fullscreen needs --fb: ignored\n");
     if (!want_fb) {
@@ -1958,10 +2116,10 @@ int main(int argc, char **argv)
          * has to know where this view is on the screen. Set before any web process is spawned. */
         char origin[32], screen[32];
         char scale_text[16];
-        snprintf(scale_text, sizeof scale_text, "%.6f", out.scale);
+        snprintf(scale_text, sizeof scale_text, "%.6f", out.egl_on ? (double)egl_screen_w / out.w : out.scale);
         g_setenv("WPE_DREAM_VIDEO_SCALE", scale_text, TRUE); /* a <video> rectangle is in view pixels, the screen is `scale` times larger */
         snprintf(origin, sizeof origin, "%d,%d", (out.fb_on || out.nxpl_on) ? out.fb_x : 0, (out.fb_on || out.nxpl_on) ? out.fb_y : 0);
-        snprintf(screen, sizeof screen, "%dx%d", (out.fb_on || out.nxpl_on) ? (int)out.vinfo.xres : 1920, (out.fb_on || out.nxpl_on) ? (int)out.vinfo.yres : 1080);
+        snprintf(screen, sizeof screen, "%dx%d", (out.fb_on || out.nxpl_on) ? (int)out.vinfo.xres : egl_screen_w, (out.fb_on || out.nxpl_on) ? (int)out.vinfo.yres : egl_screen_h);
         g_setenv("WEBKIT_GST_QUIRKS", "dreambox", TRUE);
         g_setenv("WEBKIT_GST_HOLE_PUNCH_QUIRK", "dreambox", TRUE);
         g_setenv("WPE_DREAM_VIDEO_ORIGIN", origin, TRUE);
