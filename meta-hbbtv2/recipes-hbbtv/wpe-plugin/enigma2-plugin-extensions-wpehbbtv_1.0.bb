@@ -122,7 +122,14 @@ inherit pkgconfig
 PLUGINDIR = "${libdir}/enigma2/python/Plugins/Extensions/WPEHbbTV"
 
 do_compile() {
-    ${CC} ${CFLAGS} ${LDFLAGS} -Wall ${S}/wpe_fb.c -o ${B}/wpe_fb \
+    # dlopen names of the EGL/GLES libraries: the SONAMEs of the staged libraries the headers come with (not hardcoded in wpe_fb.c)
+    soname() { ${READELF} -d "$1" 2>/dev/null | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p'; }
+    EGL_SO=$(soname ${STAGING_LIBDIR}/libEGL.so)
+    GLES_SO=$(soname ${STAGING_LIBDIR}/libGLESv2.so)
+    SONAME_DEFS=""
+    [ -n "$EGL_SO" ] && SONAME_DEFS="$SONAME_DEFS -DWPE_FB_EGL_LIB=\"$EGL_SO\""
+    [ -n "$GLES_SO" ] && SONAME_DEFS="$SONAME_DEFS -DWPE_FB_GLES_LIB=\"$GLES_SO\""
+    ${CC} ${CFLAGS} ${LDFLAGS} -Wall $SONAME_DEFS ${S}/wpe_fb.c -o ${B}/wpe_fb \
         -I${STAGING_INCDIR}/orb \
         $(pkg-config --cflags --libs wpe-webkit-2.0 wpe-platform-2.0 libsoup-3.0 gio-2.0 glib-2.0) \
         -lORBHost -lm -ldl

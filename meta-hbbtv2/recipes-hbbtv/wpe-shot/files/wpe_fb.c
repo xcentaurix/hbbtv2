@@ -99,6 +99,8 @@ static gboolean no_debug_js; /* --no-debug-js */
 static gboolean limit_repeat; /* --limit-repeat */
 static gboolean key_awaits_frame; /* a key was delivered to the application and no frame has arrived since */
 static gint64 key_sent_us;
+#define KEY_FASTPATH_US 400000 /* frames this soon after a key press are the page's answer to it: shown at once (--egl-sink settling is for page loads) */
+static gint64 key_pressed_us;
 static guint64 repeats_forwarded, repeats_dropped;
 #define TRACE(...) do { if (trace) { fprintf(stderr, "T %lld ", (long long)g_get_monotonic_time()); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
@@ -442,11 +444,15 @@ typedef struct {
     guint32 alpha, lock, dirty;
     gint32 dirty_y0, dirty_y1;
     guint32 seq, pid;
+    gint32 hole_x, hole_y, hole_w, hole_h; /* frame pixels; hole_w <= 0: no hole. gEGLDC leaves this rectangle out, so what is behind shows */
 } WebOverlayShm;
 
 #define WOV_MAGIC 0x31564f57u /* "WOV1" */
 #define WOV_VERSION 1u
 #define WOV_HEADER 4096u
+
+static void plane_restore(void);
+static gboolean plane_moved; /* the video plane was moved for a video/broadcast object and has to be put back */
 
 static WebOverlayShm *egl_shm;
 static size_t egl_len;
@@ -455,6 +461,7 @@ static struct sockaddr_un egl_peer;
 static int egl_sock = -1;
 static int egl_screen_w = 1920, egl_screen_h = 1080;
 static gboolean egl_notify_pending;
+static int egl_settle_ms = 60, egl_max_delay_ms = 250; /* see egl_mark_dirty() */
 
 /* The frame lives in a fresh file that is renamed over the old one: gEGLDC keeps the previous mapping valid (and notices the new inode),
  * and never finds a truncated file under its feet. The magic is written last. */
@@ -483,6 +490,10 @@ static gboolean egl_open(void)
         return FALSE;
     }
     egl_shm = p;
+    if (g_getenv("WPE_EGL_SETTLE_MS"))
+        egl_settle_ms = atoi(g_getenv("WPE_EGL_SETTLE_MS"));
+    if (g_getenv("WPE_EGL_MAX_DELAY_MS"))
+        egl_max_delay_ms = MAX(1, atoi(g_getenv("WPE_EGL_MAX_DELAY_MS")));
     memset(egl_shm, 0, WOV_HEADER);
     egl_shm->version = WOV_VERSION;
     egl_shm->width = out.w;
@@ -528,26 +539,99 @@ static void egl_unlock(void)
     __atomic_store_n(&egl_shm->lock, 0u, __ATOMIC_RELEASE);
 }
 
-/* rows [y0, y1) of the canvas were rewritten: they are published only after the copy, so a reader that sees the mark sees the pixels */
+/* Rows [y0, y1) of the canvas were rewritten. They are not shown at once: WebKit paints in tiles, and the frames it delivers while a page is
+ * still being painted (new tiles, images arriving) show blank parts. The rows are collected here and published to enigma2 only when no
+ * further frame has come for WPE_EGL_SETTLE_MS (default 60) or the first of them is WPE_EGL_MAX_DELAY_MS (default 250) old - so the
+ * settled picture is shown, not every step on the way. WPE_EGL_SETTLE_MS=0 publishes every frame immediately. */
+static int pend_y0, pend_y1;
+static gboolean pend_have;
+static guint pend_timer;
+static gint64 pend_first_us;
+
 static void egl_mark_dirty(int y0, int y1)
 {
+    if (!pend_have || y0 < pend_y0)
+        pend_y0 = y0;
+    if (!pend_have || y1 > pend_y1)
+        pend_y1 = y1;
+    if (!pend_have)
+        pend_first_us = g_get_monotonic_time();
+    pend_have = TRUE;
+}
+
+/* the pixels were copied before the rows are marked, so a reader that sees the mark sees the pixels */
+static void egl_publish(void)
+{
+    if (!pend_have)
+        return;
     egl_lock();
-    if (!egl_shm->dirty || y0 < egl_shm->dirty_y0)
-        egl_shm->dirty_y0 = y0;
-    if (!egl_shm->dirty || y1 > egl_shm->dirty_y1)
-        egl_shm->dirty_y1 = y1;
+    if (!egl_shm->dirty || pend_y0 < egl_shm->dirty_y0)
+        egl_shm->dirty_y0 = pend_y0;
+    if (!egl_shm->dirty || pend_y1 > egl_shm->dirty_y1)
+        egl_shm->dirty_y1 = pend_y1;
     egl_shm->dirty = 1;
     egl_shm->seq++;
     egl_unlock();
-    egl_notify_pending = TRUE;
+    pend_have = FALSE;
     if (!egl_shm->visible)
         __atomic_store_n(&egl_shm->visible, 1u, __ATOMIC_RELEASE); /* from the first frame on */
+    egl_notify();
+}
+
+static gboolean egl_publish_cb(gpointer data)
+{
+    (void)data;
+    pend_timer = 0;
+    egl_publish();
+    return G_SOURCE_REMOVE;
+}
+
+/* end of one WebKit frame (all its damage rects are marked): publish now, or wait for the stream to settle */
+static void egl_frame_done(void)
+{
+    if (!pend_have)
+        return;
+    if (egl_settle_ms <= 0 || (key_pressed_us && g_get_monotonic_time() - key_pressed_us < KEY_FASTPATH_US)) {
+        egl_publish();
+        return;
+    }
+    if (pend_timer) {
+        g_source_remove(pend_timer);
+        pend_timer = 0;
+    }
+    const gint64 waited = (g_get_monotonic_time() - pend_first_us) / 1000;
+    if (waited >= egl_max_delay_ms) {
+        egl_publish();
+        return;
+    }
+    const gint64 wait = MIN((gint64)egl_settle_ms, egl_max_delay_ms - waited);
+    pend_timer = g_timeout_add((guint)wait, egl_publish_cb, NULL);
+}
+
+/* Cut a transparent hole into the layer (frame pixels), or remove it (w <= 0). The picture behind - the live service's video plane - shows
+ * through it. gEGLDC draws the frame around the rectangle, so whatever the page painted there (an opaque black box) does not matter. */
+static void egl_set_hole(int x, int y, int w, int h)
+{
+    if (!egl_shm)
+        return;
+    egl_lock();
+    egl_shm->hole_x = x;
+    egl_shm->hole_y = y;
+    egl_shm->hole_w = w;
+    egl_shm->hole_h = h;
+    egl_shm->seq++;
+    egl_unlock();
+    egl_notify();
 }
 
 static void egl_close(void)
 {
     if (!egl_shm)
         return;
+    if (plane_moved) {
+        plane_restore();
+        plane_moved = FALSE;
+    }
     __atomic_store_n(&egl_shm->visible, 0u, __ATOMIC_RELEASE);
     egl_notify();
     unlink(egl_shm_path);
@@ -577,6 +661,32 @@ static void egl_close(void)
 
 typedef void *EGLDisplayNX, *EGLConfigNX, *EGLContextNX, *EGLSurfaceNX, *EGLNativeWindowTypeNX;
 typedef int EGLBoolean;
+
+/* The library names to dlopen are not guessed here: the recipe reads the SONAME of the EGL/GLESv2 library the build's own headers belong to (the
+ * staged libEGL/libGLESv2, "readelf -d") and passes it as WPE_FB_EGL_LIB / WPE_FB_GLES_LIB. The unversioned and vendor-driver names stay only as
+ * fallbacks for boxes whose image ships the GPU driver under another name (GigaBlue: libv3ddriver.so only). */
+#ifdef WPE_FB_EGL_LIB
+#define NXPL_EGL_FIRST WPE_FB_EGL_LIB,
+#else
+#define NXPL_EGL_FIRST
+#endif
+#ifdef WPE_FB_GLES_LIB
+#define NXPL_GLES_FIRST WPE_FB_GLES_LIB,
+#else
+#define NXPL_GLES_FIRST
+#endif
+static const char *const nxpl_egl_names[] = { NXPL_EGL_FIRST "libEGL.so", "libv3ddriver.so", NULL };
+static const char *const nxpl_gles_names[] = { NXPL_GLES_FIRST "libGLESv2.so", "libv3ddriver.so", NULL };
+
+static void *nxpl_dlopen_any(const char *const *names, int flags)
+{
+    for (int i = 0; names[i]; i++) {
+        void *h = dlopen(names[i], flags);
+        if (h)
+            return h;
+    }
+    return NULL;
+}
 
 static gboolean nxpl_dirty;
 /* Full 2D bounding box of everything touched since the last present(), not just a row range. r21/r22's own measurements on a real GigaBlue (project
@@ -644,13 +754,8 @@ static const float nxpl_quad[] = {
 
 static gboolean nxpl_try_open(void)
 {
-    static const char *const egl_names[] = { "libEGL.so.1", "libEGL.so", "libv3ddriver.so", NULL };
-    static const char *const gles_names[] = { "libGLESv2.so.2", "libGLESv2.so", "libv3ddriver.so", NULL };
-    void *egl = NULL, *gles = NULL;
-    for (int i = 0; egl_names[i] && !egl; i++)
-        egl = dlopen(egl_names[i], RTLD_NOW | RTLD_GLOBAL);
-    for (int i = 0; gles_names[i] && !gles; i++)
-        gles = dlopen(gles_names[i], RTLD_NOW | RTLD_GLOBAL);
+    void *egl = nxpl_dlopen_any(nxpl_egl_names, RTLD_NOW | RTLD_GLOBAL);
+    void *gles = nxpl_dlopen_any(nxpl_gles_names, RTLD_NOW | RTLD_GLOBAL);
     if (!egl || !gles) {
         fprintf(stderr, "nxpl: no EGL/GLES library found - not a GigaBlue/Nexus box, falling back to /dev/fb0\n");
         return FALSE;
@@ -729,8 +834,8 @@ static gboolean nxpl_finish_open(void)
         return FALSE;
     nxpl_ShowNativeWindowEXT(nxpl_native_window, 1);
 
-    void *egl = dlopen("libEGL.so.1", RTLD_NOW) ?: dlopen("libEGL.so", RTLD_NOW) ?: dlopen("libv3ddriver.so", RTLD_NOW);
-    void *gles = dlopen("libGLESv2.so.2", RTLD_NOW) ?: dlopen("libGLESv2.so", RTLD_NOW) ?: dlopen("libv3ddriver.so", RTLD_NOW);
+    void *egl = nxpl_dlopen_any(nxpl_egl_names, RTLD_NOW); /* already loaded by nxpl_try_open(): same handles back */
+    void *gles = nxpl_dlopen_any(nxpl_gles_names, RTLD_NOW);
     void *(*eglGetDisplay_)(void *) = dlsym(egl, "eglGetDisplay");
     EGLBoolean (*eglInitialize_)(void *, int *, int *) = dlsym(egl, "eglInitialize");
     EGLBoolean (*eglBindAPI_)(unsigned) = dlsym(egl, "eglBindAPI");
@@ -1154,8 +1259,8 @@ static gboolean view_render_buffer(WPEView *v, WPEBuffer *buffer, const WPERecta
         }
     }
     g_bytes_unref(bytes);
-    if (out.egl_on && egl_notify_pending)
-        egl_notify(); /* one wake-up per WebKit frame, after all of its damage rects were published */
+    if (out.egl_on)
+        egl_frame_done(); /* publish to enigma2 (now, or once the stream of frames settles), after all of this frame's damage rects were marked */
     if (out.nxpl_on)
         nxpl_present(); /* one upload+swap per frame, after all of this frame's damage rects were converted into out.conv above */
 
@@ -1423,6 +1528,8 @@ static const char *orb_dir;
 static gboolean send_key(const char *name, gboolean down, gboolean up)
 {
     WPEView *wv = webkit_web_view_get_wpe_view(view);
+    if (down)
+        key_pressed_us = g_get_monotonic_time();
     for (guint i = 0; i < G_N_ELEMENTS(key_table); i++) {
         if (strcmp(key_table[i].name, name))
             continue;
@@ -1723,6 +1830,100 @@ static gboolean keyset_tick(gpointer data)
     }
     return G_SOURCE_CONTINUE;
 }
+
+/* ----------------------------------------------------------------------- video/broadcast object -> PiG ---- */
+
+/* HbbTV shows the live picture where the application puts its video/broadcast object (a "picture in graphics"). Everything on the box
+ * is already in place for it: the live service plays on the video plane behind the layer. What was missing is (1) a transparent hole in
+ * the layer where the object is, and (2) the video plane sized to that rectangle. The rectangle is read from the page itself by a small
+ * script (the polyfill keeps the <object> element) and arrives here as "x,y,w,h" in the 1280x720 coordinates of the page. */
+
+static void plane_write(int left, int top, int width, int height)
+{
+    const int v[4] = { left, top, width, height };
+    for (int i = 0; i < 4; i++) {
+        char path[64];
+        snprintf(path, sizeof path, "/proc/stb/vmpeg/0/dst_%s", plane_names[i]);
+        FILE *f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "%08x\n", v[i]); /* like enigma2's eVideoWidget::writeProc() */
+            fclose(f);
+        }
+    }
+    FILE *f = fopen("/proc/stb/vmpeg/0/dst_apply", "w");
+    if (f) {
+        fputs("1\n", f);
+        fclose(f);
+    }
+}
+
+static void apply_video_rect(int x, int y, int w, int h)
+{
+    static int last[4] = { -1, -1, -1, -1 };
+    if (last[0] == x && last[1] == y && last[2] == w && last[3] == h)
+        return;
+    last[0] = x; last[1] = y; last[2] = w; last[3] = h;
+    if (!out.egl_on) {
+        fprintf(stderr, "video/broadcast %d,%d %dx%d: only supported with --egl-sink, ignored\n", x, y, w, h);
+        return;
+    }
+    const gboolean full = w <= 0 || h <= 0 || (x <= 0 && y <= 0 && w >= 1280 && h >= 720);
+    if (full) {
+        egl_set_hole(0, 0, 0, 0);
+        if (plane_moved) {
+            plane_restore();
+            plane_moved = FALSE;
+        }
+        fprintf(stderr, "video/broadcast: whole screen (no hole)\n");
+        return;
+    }
+    if (!plane_have_saved)
+        plane_save();
+    /* the application is laid out at 1280x720; the driver's output space is 720x576 (same mapping as enigma2's eVideoWidget) */
+    plane_write(x * 720 / 1280, y * 576 / 720, w * 720 / 1280, h * 576 / 720);
+    plane_moved = TRUE;
+    const double sc = (double)out.w / 1280.0; /* frame pixels per page pixel (hidpi) */
+    egl_set_hole((int)(x * sc), (int)(y * sc), (int)(w * sc + 0.5), (int)(h * sc + 0.5));
+    fprintf(stderr, "video/broadcast: picture in graphics at %d,%d %dx%d\n", x, y, w, h);
+}
+
+static gboolean video_rect_idle(gpointer data)
+{
+    int x = 0, y = 0, w = 0, h = 0;
+    if (sscanf((const char *)data, "%d,%d,%d,%d", &x, &y, &w, &h) == 4)
+        apply_video_rect(x, y, w, h);
+    g_free(data);
+    return G_SOURCE_REMOVE;
+}
+
+/* the script's postMessage("x,y,w,h"): any thread is possible, so hop to the main loop */
+static void on_video_rect_message(WebKitUserContentManager *ucm, JSCValue *value, gpointer user)
+{
+    (void)ucm; (void)user;
+    if (!jsc_value_is_string(value))
+        return;
+    char *text = jsc_value_to_string(value);
+    if (text && strlen(text) < 48)
+        g_idle_add(video_rect_idle, g_strdup(text));
+    g_free(text);
+}
+
+static const char video_rect_script[] =
+    "(function(){\n"
+    "  if (window.top !== window || !window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.e2video) return;\n"
+    "  var last = '';\n"
+    "  function tick() {\n"
+    "    var r = [0, 0, 0, 0], o = document.querySelector('object[type=\"video/broadcast\"]');\n"
+    "    if (o) {\n"
+    "      var b = o.getBoundingClientRect(), cs = getComputedStyle(o);\n"
+    "      if (cs.display !== 'none' && cs.visibility !== 'hidden' && b.width > 1 && b.height > 1)\n"
+    "        r = [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)];\n"
+    "    }\n"
+    "    var s = r.join(',');\n"
+    "    if (s !== last) { last = s; window.webkit.messageHandlers.e2video.postMessage(s); }\n"
+    "  }\n"
+    "  setInterval(tick, 200);\n"
+    "})();\n";
 
 /* orb://player: the page the polyfill's media element extension puts in an iframe to play audio/video (see ORB's
  * ORBWPEWebExtensionHelper::HandleORBURISchemeRequest). It is playerpage.html with the token of the page and two scripts
@@ -2214,6 +2415,14 @@ int main(int argc, char **argv)
             WebKitUserStyleSheet *sheet = webkit_user_style_sheet_new(css, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_STYLE_LEVEL_USER, NULL, NULL);
             webkit_user_content_manager_add_style_sheet(ucm, sheet);
             webkit_user_style_sheet_unref(sheet);
+        }
+        if (out.egl_on) {
+            /* the live picture belongs into the application's video/broadcast object (see apply_video_rect) */
+            webkit_user_content_manager_register_script_message_handler(ucm, "e2video", NULL);
+            g_signal_connect(ucm, "script-message-received::e2video", G_CALLBACK(on_video_rect_message), NULL);
+            WebKitUserScript *vr = webkit_user_script_new(video_rect_script, WEBKIT_USER_CONTENT_INJECT_TOP_FRAME, WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, NULL, NULL);
+            webkit_user_content_manager_add_script(ucm, vr);
+            webkit_user_script_unref(vr);
         }
         char *js_path = g_build_filename(orb_dir, "hbbtv.js", NULL), *source = NULL;
         if (!g_file_get_contents(js_path, &source, NULL, &error)) {

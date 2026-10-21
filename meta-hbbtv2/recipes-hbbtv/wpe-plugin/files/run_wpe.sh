@@ -17,14 +17,14 @@ WPE_FB=${WPE_FB:-wpe_fb}
 ORB=${WPE_ORB_DIR:-/usr/lib/orb}
 
 # Settings: /etc/enigma2/wpehbbtv.conf (KEY=VALUE, written by the plugin's settings menu); a value already in the environment wins.
-#   WPE_HIDPI       render scale: 1.5 = sharp (default), 1.25, 1.0 = fast. The read-back of a frame from the GPU costs time in
+#   WPE_HIDPI       render scale: 1.5 = sharp, 1.25, 1.0 = fast (default). The read-back of a frame from the GPU costs time in
 #                   proportion to its pixels: 1.0 is ~3 times quicker to react than 1.5
-#   WPE_FAST_ANIM   1: CSS transitions/animations last 1 ms, no smooth scrolling (fewer frames per key press); default 0
+#   WPE_FAST_ANIM   1: CSS transitions/animations last 1 ms, no smooth scrolling (fewer frames per key press); default 1
 #   WPE_PERSIST     1: HTTP cache (<= 75 MB), cookies and local storage survive between runs (default 1, needs /media/hdd)
 #   WPE_PERSIST_DIR where they live (default /media/hdd/.wpe-data)
-#   WPE_DEBUG       1: debug.js (the page's console and media events in /tmp/wpe_fb.log) and GStreamer debug output; default 0
+#   WPE_DEBUG       1: debug.js (the page's console and media events in /tmp/wpe_fb.log) and GStreamer debug output; default 1
 #   WPE_LIMIT_REPEAT 1: pass the remote's auto-repeat on at most once per delivered frame, so a held key moves fewer steps; a matter
-#                   of feel, it does not make the page settle sooner (docs/phase1-results.txt); default 0
+#                   of feel, it does not make the page settle sooner (docs/phase1-results.txt); default 1
 CONF=/etc/enigma2/wpehbbtv.conf
 if [ -f "$CONF" ]; then
 	while IFS='=' read -r k v; do
@@ -33,7 +33,7 @@ if [ -f "$CONF" ]; then
 		esac
 	done <"$CONF"
 fi
-case "$WPE_HIDPI" in 1 | 1.0 | 1.25 | 1.5) ;; *) WPE_HIDPI=1.5 ;; esac
+case "$WPE_HIDPI" in 1 | 1.0 | 1.25 | 1.5) ;; *) WPE_HIDPI=1.0 ;; esac
 WPE_PERSIST_DIR=${WPE_PERSIST_DIR:-/media/hdd/.wpe-data}
 case "$WPE_PERSIST_DIR" in /*[!A-Za-z0-9_./-]* | [!/]*) WPE_PERSIST_DIR=/media/hdd/.wpe-data ;; esac # an absolute plain path, else the default
 OPTS="--hidpi $WPE_HIDPI --transparent --fine-damage"
@@ -42,9 +42,9 @@ OPTS="--hidpi $WPE_HIDPI --transparent --fine-damage"
 OUTMODE="--fb --fullscreen"
 [ -z "$WPE_EGL" ] && [ -S /tmp/e2_webov.sock ] && WPE_EGL=1
 [ "$WPE_EGL" = 1 ] && [ "$WPE_OVERLAY" != 1 ] && OUTMODE="--egl-sink"
-[ "$WPE_FAST_ANIM" = 1 ] && OPTS="$OPTS --fast-anim"
-[ "$WPE_DEBUG" = 1 ] || OPTS="$OPTS --no-debug-js"
-[ "$WPE_LIMIT_REPEAT" = 1 ] && OPTS="$OPTS --limit-repeat"
+[ "${WPE_FAST_ANIM:-1}" = 1 ] && OPTS="$OPTS --fast-anim"
+[ "${WPE_DEBUG:-1}" = 1 ] || OPTS="$OPTS --no-debug-js"
+[ "${WPE_LIMIT_REPEAT:-1}" = 1 ] && OPTS="$OPTS --limit-repeat"
 [ "$WPE_OVERLAY" = 1 ] && OPTS="$OPTS --overlay-png /tmp/wpe_overlay" # set by the plugin for the automatic banner: no framebuffer, the visible part of each frame as a PNG that the plugin shows in a screen of enigma2
 if [ "${WPE_PERSIST:-1}" = 1 ] && [ -d "$(dirname "$WPE_PERSIST_DIR")" ] && [ -w "$(dirname "$WPE_PERSIST_DIR")" ]; then
 	OPTS="$OPTS --persist $WPE_PERSIST_DIR"
@@ -57,11 +57,19 @@ export HOME=/tmp/wpe-home
 mkdir -p "$XDG_RUNTIME_DIR" "$HOME" /tmp/wpe-fontconfig-cache
 chmod 700 "$XDG_RUNTIME_DIR"
 # The Dreambox vendor EGL crashes in glFlush() once an EGL fence sync exists (WebKit patch 0005 adds this opt-out)
-export WEBKIT_DISABLE_GL_FENCE=1
+# Nexus based boxes (GigaBlue; enigma2's EGL renderer is listening) work with fences
+if [ "$WPE_EGL" = 1 ] || [ -e /dev/nexus ]; then
+	export WEBKIT_DISABLE_GL_FENCE=0
+else
+	export WEBKIT_DISABLE_GL_FENCE=1
+fi
+# Skia: paint on the CPU with 2 painting threads
+export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
+export WEBKIT_SKIA_CPU_PAINTING_THREADS=2
 
 # media pipeline diagnostics into the log (/tmp/wpe_fb.log): player, quirks and the dvb sinks; the page's own console/media events
 # come from debug.js (in the ORB directory) as "[page] ..." lines
-if [ "$WPE_DEBUG" = 1 ]; then
+if [ "${WPE_DEBUG:-1}" = 1 ]; then
 	export GST_DEBUG="${GST_DEBUG:-2,webkitmediaplayer:4,webkitquirks:4,dvbvideosink:4,dvbaudiosink:4,webkitwebsrc:5}"
 else
 	export GST_DEBUG="${GST_DEBUG:-2}"

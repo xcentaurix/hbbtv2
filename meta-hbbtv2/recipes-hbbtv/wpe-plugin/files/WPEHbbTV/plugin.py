@@ -1179,11 +1179,11 @@ def sessionStart(reason, session=None, **kwargs):
 SETTINGS = [
 	("WPE_REDBUTTON", "Red button starts the HbbTV application", [("1", "on"), ("0", "off")], "1"),
 	("WPE_AUTOSTART", "Automatic HbbTV banner when zapping (autostart)", [("0", "off"), ("1", "on")], "0"),
-	("WPE_HIDPI", "Render quality", [("1.5", "sharp (1.5x)"), ("1.25", "balanced (1.25x)"), ("1.0", "fast (1.0x)")], "1.5"),
-	("WPE_FAST_ANIM", "Shorter animations", [("0", "off"), ("1", "on")], "0"),
+	("WPE_HIDPI", "Render quality", [("1.5", "sharp (1.5x)"), ("1.25", "balanced (1.25x)"), ("1.0", "fast (1.0x)")], "1.0"),
+	("WPE_FAST_ANIM", "Shorter animations", [("0", "off"), ("1", "on")], "1"),
 	("WPE_PERSIST", "Keep cache, cookies and storage", [("1", "yes"), ("0", "no")], "1"),
-	("WPE_DEBUG", "Debug log (slower)", [("0", "off"), ("1", "on")], "0"),
-	("WPE_LIMIT_REPEAT", "Limit key repeat (a feel, not a speed-up)", [("0", "off"), ("1", "on")], "0"),
+	("WPE_DEBUG", "Debug log (slower)", [("0", "off"), ("1", "on")], "1"),
+	("WPE_LIMIT_REPEAT", "Limit key repeat (a feel, not a speed-up)", [("0", "off"), ("1", "on")], "1"),
 ]
 
 
