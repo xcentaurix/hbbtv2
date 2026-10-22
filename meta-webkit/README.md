@@ -1,0 +1,47 @@
+meta-webkit (OpenEmbedded/Yocto layer for WebKit based engines and browsers)
+============================================================================
+
+This layer provides recipes of WebKit based runtimes and browsers for
+use with OpenEmbedded and/or Yocto.
+
+This layer depends on:
+
+    URI: git://git.openembedded.org/openembedded-core
+    branch: main
+    revision: HEAD
+    layers: meta
+
+    URI: git://git.openembedded.org/meta-openembedded
+    branch: main
+    revision: HEAD
+    layers: meta-multimedia, meta-oe, meta-python
+
+This layer optionally depends on:
+
+    URI: http://code.qt.io/yocto/meta-qt6.git
+    branch: lts-6.8.5
+    revision: HEAD
+
+If meta-qt6 is present, this layer will provide an opt-in Qt6 API as an
+alternative to other Qt6 web-engines such as QtWebKit and QtWebEngine.
+
+**Warning**: The default branch has been renamed to `main` because
+[#219](https://github.com/Igalia/meta-webkit/issues/219). The old default
+branch (`master`) will still be kept as a mirror of the `main` until February
+of 2022 [#220](https://github.com/Igalia/meta-webkit/issues/220), at least.
+Please update any external reference from `master` to `main` as soon as
+possible.
+
+Building the WPE engine or WebKitGTK+
+=====================================
+
+Please refer to the project Wiki for a detailed guide:
+
+   - WiKi: https://github.com/Igalia/meta-webkit/wiki
+
+How to contribute
+=====================================
+Contributions are welcomed. Please send your patches as
+[Pull Requests](https://github.com/Igalia/meta-webkit/pulls) or fill a
+[Issue report](https://github.com/Igalia/meta-webkit/issues) in case you need
+to ask for help.
