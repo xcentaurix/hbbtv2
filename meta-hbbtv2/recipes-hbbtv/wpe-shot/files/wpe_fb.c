@@ -99,7 +99,7 @@ static gboolean no_debug_js; /* --no-debug-js */
 static gboolean limit_repeat; /* --limit-repeat */
 static gboolean key_awaits_frame; /* a key was delivered to the application and no frame has arrived since */
 static gint64 key_sent_us;
-#define KEY_FASTPATH_US 400000 /* frames this soon after a key press are the page's answer to it: shown at once (--egl-sink settling is for page loads) */
+static int egl_key_fast_ms = 400; /* WPE_EGL_KEY_MS: frames this soon after a key press are the page's answer to it: shown at once (--egl-sink settling is for page loads) */
 static gint64 key_pressed_us;
 static guint64 repeats_forwarded, repeats_dropped;
 #define TRACE(...) do { if (trace) { fprintf(stderr, "T %lld ", (long long)g_get_monotonic_time()); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
@@ -457,10 +457,13 @@ static gboolean plane_moved; /* the video plane was moved for a video/broadcast 
 static WebOverlayShm *egl_shm;
 static size_t egl_len;
 static char *egl_shm_path;
+static ino_t egl_ino; /* inode of our frame file: a newer wpe_fb may have renamed its own over the path by the time we exit */
 static struct sockaddr_un egl_peer;
 static int egl_sock = -1;
 static int egl_screen_w = 1920, egl_screen_h = 1080;
 static gboolean egl_notify_pending;
+static int egl_hold_ms = 400; /* WPE_EGL_HOLD_MS, see held_take() */
+static gboolean egl_hold_clear; /* WPE_EGL_HOLD_CLEAR */
 static int egl_settle_ms = 60, egl_max_delay_ms = 250; /* see egl_mark_dirty() */
 
 /* The frame lives in a fresh file that is renamed over the old one: gEGLDC keeps the previous mapping valid (and notices the new inode),
@@ -492,6 +495,11 @@ static gboolean egl_open(void)
     egl_shm = p;
     if (g_getenv("WPE_EGL_SETTLE_MS"))
         egl_settle_ms = atoi(g_getenv("WPE_EGL_SETTLE_MS"));
+    if (g_getenv("WPE_EGL_HOLD_MS"))
+        egl_hold_ms = atoi(g_getenv("WPE_EGL_HOLD_MS"));
+    egl_hold_clear = g_getenv("WPE_EGL_HOLD_CLEAR") && atoi(g_getenv("WPE_EGL_HOLD_CLEAR")) == 1;
+    if (g_getenv("WPE_EGL_KEY_MS"))
+        egl_key_fast_ms = atoi(g_getenv("WPE_EGL_KEY_MS"));
     if (g_getenv("WPE_EGL_MAX_DELAY_MS"))
         egl_max_delay_ms = MAX(1, atoi(g_getenv("WPE_EGL_MAX_DELAY_MS")));
     memset(egl_shm, 0, WOV_HEADER);
@@ -510,6 +518,10 @@ static gboolean egl_open(void)
         return FALSE;
     }
     g_free(tmp);
+    {
+        struct stat st;
+        egl_ino = stat(egl_shm_path, &st) == 0 ? st.st_ino : 0;
+    }
     out.canvas = (guint8 *)p + WOV_HEADER; /* WPE's frame is copied straight into the shared memory */
 
     egl_sock = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -591,7 +603,7 @@ static void egl_frame_done(void)
 {
     if (!pend_have)
         return;
-    if (egl_settle_ms <= 0 || (key_pressed_us && g_get_monotonic_time() - key_pressed_us < KEY_FASTPATH_US)) {
+    if (egl_settle_ms <= 0 || (key_pressed_us && g_get_monotonic_time() - key_pressed_us < (gint64)egl_key_fast_ms * 1000)) {
         egl_publish();
         return;
     }
@@ -624,17 +636,121 @@ static void egl_set_hole(int x, int y, int w, int h)
     egl_notify();
 }
 
+/* Unpainted tiles. WebKit paints tiles asynchronously and has no "frame complete" signal: while a slow page is still painting, the buffers it
+ * delivers contain damage rects that are one solid colour - opaque black (0xFF000000) or fully transparent (0) - because the tile has not been
+ * painted yet. Such a rect is not copied into the shared frame (enigma2 keeps showing what was there); a copy of it is held for
+ * WPE_EGL_HOLD_MS (default 400) and any later damage rect that touches it replaces it, since that is the real paint. Only if nothing
+ * repaints the area in that time is the solid rect real content, and it is published after all. WPE_EGL_HOLD_MS=0 turns this off.
+ * Small rects are never held (a button highlight, a caret). Transparent rects are held only with WPE_EGL_HOLD_CLEAR=1 (a page that clears
+ * an area to show the picture behind it would otherwise lose that for the hold time). */
+#define HOLD_MAX 48
+#define HOLD_MIN_PIXELS 4096
+typedef struct {
+    int x, y, w, h;
+    guint8 *px; /* w*h*4, tightly packed */
+    gint64 due_us;
+} HeldRect;
+static HeldRect held[HOLD_MAX];
+static int nheld;
+static guint held_timer;
+
+static gboolean held_flush_cb(gpointer data);
+
+static void held_arm(void)
+{
+    if (held_timer) {
+        g_source_remove(held_timer);
+        held_timer = 0;
+    }
+    if (!nheld)
+        return;
+    gint64 first = held[0].due_us;
+    for (int i = 1; i < nheld; i++)
+        first = MIN(first, held[i].due_us);
+    gint64 ms = (first - g_get_monotonic_time() + 999) / 1000;
+    held_timer = g_timeout_add((guint)MAX(ms, 1), held_flush_cb, NULL);
+}
+
+static void held_drop(int i)
+{
+    g_free(held[i].px);
+    held[i] = held[--nheld];
+}
+
+/* a damage rect (clipped, frame pixels) arrived: whatever it touches that is held was not the final paint */
+static void held_supersede(int x, int y, int w, int h)
+{
+    for (int i = nheld - 1; i >= 0; i--)
+        if (x < held[i].x + held[i].w && x + w > held[i].x && y < held[i].y + held[i].h && y + h > held[i].y)
+            held_drop(i);
+}
+
+static gboolean held_flush_cb(gpointer data)
+{
+    (void)data;
+    held_timer = 0;
+    const gint64 now = g_get_monotonic_time();
+    gboolean any = FALSE;
+    for (int i = nheld - 1; i >= 0; i--) {
+        if (held[i].due_us > now)
+            continue;
+        for (int row = 0; row < held[i].h; row++)
+            memcpy(out.canvas + ((size_t)(held[i].y + row) * out.w + held[i].x) * 4, held[i].px + (size_t)row * held[i].w * 4, (size_t)held[i].w * 4);
+        egl_mark_dirty(held[i].y, held[i].y + held[i].h);
+        held_drop(i);
+        any = TRUE;
+    }
+    held_arm();
+    if (any)
+        egl_publish();
+    return G_SOURCE_REMOVE;
+}
+
+/* TRUE: the rect is an unpainted-looking solid block and was taken into the hold list instead of the frame */
+static gboolean held_take(const guint8 *src, int stride, int rx, int ry, int rw, int rh)
+{
+    if (egl_hold_ms <= 0 || (gint64)rw * rh < HOLD_MIN_PIXELS || nheld >= HOLD_MAX)
+        return FALSE;
+    const guint32 first = *(const guint32 *)(src + (size_t)ry * stride + (size_t)rx * 4);
+    if (first != 0xFF000000u && !(first == 0 && egl_hold_clear))
+        return FALSE;
+    for (int row = 0; row < rh; row++) {
+        const guint32 *p = (const guint32 *)(src + (size_t)(ry + row) * stride + (size_t)rx * 4);
+        for (int c = 0; c < rw; c++)
+            if (p[c] != first)
+                return FALSE;
+    }
+    HeldRect *r = &held[nheld++];
+    r->x = rx; r->y = ry; r->w = rw; r->h = rh;
+    r->px = g_malloc((size_t)rw * rh * 4);
+    for (int row = 0; row < rh; row++)
+        memcpy(r->px + (size_t)row * rw * 4, src + (size_t)(ry + row) * stride + (size_t)rx * 4, (size_t)rw * 4);
+    r->due_us = g_get_monotonic_time() + (gint64)egl_hold_ms * 1000;
+    held_arm();
+    return TRUE;
+}
+
 static void egl_close(void)
 {
     if (!egl_shm)
         return;
+    while (nheld)
+        held_drop(nheld - 1);
+    if (held_timer) {
+        g_source_remove(held_timer);
+        held_timer = 0;
+    }
     if (plane_moved) {
         plane_restore();
         plane_moved = FALSE;
     }
     __atomic_store_n(&egl_shm->visible, 0u, __ATOMIC_RELEASE);
     egl_notify();
-    unlink(egl_shm_path);
+    {
+        struct stat st;
+        if (stat(egl_shm_path, &st) == 0 && st.st_ino == egl_ino)
+            unlink(egl_shm_path); /* not a newer instance's file */
+    }
     egl_notify(); /* enigma2 finds the file gone and drops its mapping */
     munmap(egl_shm, egl_len);
     egl_shm = NULL;
@@ -1173,6 +1289,11 @@ static void out_blit_rect(const guint8 *src, int stride, int rx, int ry, int rw,
     if (rw <= 0 || rh <= 0)
         return;
 
+    if (out.egl_on) {
+        held_supersede(rx, ry, rw, rh);
+        if (held_take(src, stride, rx, ry, rw, rh))
+            return;
+    }
     for (int row = 0; row < rh; row++)
         memcpy(out.canvas + ((size_t)(ry + row) * out.w + rx) * 4, src + (size_t)(ry + row) * stride + (size_t)rx * 4, (size_t)rw * 4);
 
